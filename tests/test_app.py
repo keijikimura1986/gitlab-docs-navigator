@@ -32,11 +32,23 @@ class TextTests(unittest.TestCase):
 
         tree = build_document_tree(documents)
 
+        self.assertEqual(tree[0]["path"], "README.md")
         self.assertEqual([node["name"] for node in tree if node["type"] == "directory"], ["guide"])
-        guide = tree[0]
+        guide = tree[1]
         self.assertEqual(guide["children"][0]["name"], "setup")
         self.assertEqual(guide["children"][1]["path"], "guide/overview.md")
-        self.assertEqual(tree[1]["path"], "README.md")
+
+    def test_document_tree_places_readme_first_case_insensitively(self):
+        documents = [
+            {"id": "1", "path": "guide/zebra.md", "title": "Zebra"},
+            {"id": "2", "path": "guide/readme.mdx", "title": "Guide"},
+            {"id": "3", "path": "guide/alpha.md", "title": "Alpha"},
+        ]
+
+        guide = build_document_tree(documents)[0]
+
+        self.assertEqual(guide["children"][0]["path"], "guide/readme.mdx")
+        self.assertEqual(guide["children"][1]["path"], "guide/alpha.md")
 
 
 class StoreTests(unittest.TestCase):

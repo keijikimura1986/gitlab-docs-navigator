@@ -109,6 +109,14 @@ def build_document_tree(documents: list[dict[str, Any]]) -> list[dict[str, Any]]
         node["documents"].append(document)
 
     def serialize(node: dict[str, Any]) -> list[dict[str, Any]]:
+        sorted_documents = sorted(
+            node["documents"], key=lambda item: normalize(item["path"].rsplit("/", 1)[-1])
+        )
+        readmes = [
+            {"type": "document", **document}
+            for document in sorted_documents
+            if normalize(document["path"].rsplit("/", 1)[-1]).startswith("readme.")
+        ]
         directories = [
             {
                 "type": "directory",
@@ -121,11 +129,10 @@ def build_document_tree(documents: list[dict[str, Any]]) -> list[dict[str, Any]]
         ]
         files = [
             {"type": "document", **document}
-            for document in sorted(
-                node["documents"], key=lambda item: normalize(item["path"].rsplit("/", 1)[-1])
-            )
+            for document in sorted_documents
+            if not normalize(document["path"].rsplit("/", 1)[-1]).startswith("readme.")
         ]
-        return [*directories, *files]
+        return [*readmes, *directories, *files]
 
     return serialize(root)
 
