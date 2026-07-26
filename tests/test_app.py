@@ -7,6 +7,7 @@ from app import (
     GitLabClient,
     Settings,
     build_document_tree,
+    find_group_readme,
     heading,
     normalize,
     plain_text,
@@ -69,6 +70,31 @@ class StoreTests(unittest.TestCase):
     def test_search_is_nfkc_case_insensitive(self):
         results = self.store.search("ＰＯＬＩＣＹ")
         self.assertEqual(len(results), 1)
+
+    def test_group_readme_uses_gitlab_profile_root_readme(self):
+        projects = [
+            {
+                "path": "company/gitlab-profile",
+                "groupPath": "company",
+                "documents": [
+                    {"id": "nested", "path": "guide/README.md"},
+                    {"id": "home", "path": "README.md"},
+                ],
+            }
+        ]
+
+        self.assertEqual(find_group_readme("company", projects), "home")
+
+    def test_group_readme_requires_direct_gitlab_profile_project(self):
+        projects = [
+            {
+                "path": "company/subgroup/gitlab-profile",
+                "groupPath": "company/subgroup",
+                "documents": [{"id": "nested-home", "path": "README.md"}],
+            }
+        ]
+
+        self.assertIsNone(find_group_readme("company", projects))
 
 
 class SettingsTests(unittest.TestCase):

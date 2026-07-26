@@ -1,6 +1,50 @@
 const $ = (selector) => document.querySelector(selector);
 const state = { tree: null, query: "", activeDoc: null, highlightQuery: "", documentIndex: new Map() };
 const views = ["#welcome", "#searchView", "#docView"];
+const SIDEBAR_DEFAULT_WIDTH = 292;
+const SIDEBAR_MIN_WIDTH = 220;
+const SIDEBAR_MAX_WIDTH = 520;
+
+function setSidebarWidth(width, persist = true) {
+  const value = Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, Math.round(width)));
+  document.documentElement.style.setProperty("--sidebar", `${value}px`);
+  const handle = $("#sidebarResizeHandle");
+  handle.setAttribute("aria-valuenow", String(value));
+  if (persist) localStorage.setItem("docsNavigator.sidebarWidth", String(value));
+}
+
+function initializeSidebarResize() {
+  const savedWidth = Number(localStorage.getItem("docsNavigator.sidebarWidth"));
+  if (Number.isFinite(savedWidth) && savedWidth > 0) setSidebarWidth(savedWidth, false);
+
+  const handle = $("#sidebarResizeHandle");
+  handle.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    handle.setPointerCapture(event.pointerId);
+    document.body.classList.add("resizing-sidebar");
+  });
+  handle.addEventListener("pointermove", (event) => {
+    if (!handle.hasPointerCapture(event.pointerId)) return;
+    setSidebarWidth(event.clientX);
+  });
+  const finishResize = (event) => {
+    if (handle.hasPointerCapture(event.pointerId)) handle.releasePointerCapture(event.pointerId);
+    document.body.classList.remove("resizing-sidebar");
+  };
+  handle.addEventListener("pointerup", finishResize);
+  handle.addEventListener("pointercancel", finishResize);
+  handle.addEventListener("dblclick", () => setSidebarWidth(SIDEBAR_DEFAULT_WIDTH));
+  handle.addEventListener("keydown", (event) => {
+    if (!["ArrowLeft", "ArrowRight", "Home"].includes(event.key)) return;
+    event.preventDefault();
+    const current = Number(handle.getAttribute("aria-valuenow")) || SIDEBAR_DEFAULT_WIDTH;
+    if (event.key === "Home") setSidebarWidth(SIDEBAR_DEFAULT_WIDTH);
+    else setSidebarWidth(current + (event.key === "ArrowRight" ? 16 : -16));
+  });
+}
+
+initializeSidebarResize();
 
 function showView(selector) {
   views.forEach((id) => $(id).classList.toggle("hidden", id !== selector));
@@ -258,6 +302,11 @@ async function loadTree() {
   $("#stats").innerHTML = `${data.source === "demo" ? '<span class="demo-badge">DEMO MODE</span><br>' : ""}${data.stats.groups} グループ ・ ${data.stats.projects} リポジトリ<br>${data.stats.documents} 文書をインデックス`;
 }
 
+function showHome() {
+  if (state.tree?.homeDocumentId) openDoc(state.tree.homeDocumentId, false);
+  else showView("#welcome");
+}
+
 function queryTerms(query) {
   return [...query.matchAll(/"([^"]+)"|(\S+)/g)]
     .map((match) => match[1] || match[2])
@@ -339,7 +388,7 @@ async function search(query, push = true) {
   query = query.trim();
   state.query = query;
   if (!query) {
-    showView("#welcome");
+    showHome();
     if (push) history.pushState({}, "", location.pathname);
     return;
   }
@@ -408,6 +457,6 @@ function route(push = false) {
     openDoc(params.get("doc"), push, query);
   }
   else if (params.has("q")) { $("#searchInput").value = params.get("q"); search(params.get("q"), push); }
-  else showView("#welcome");
+  else showHome();
 }
 loadTree().then(() => route(false)).catch((error) => { $("#tree").innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`; toast(error.message); });

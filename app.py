@@ -137,6 +137,39 @@ def build_document_tree(documents: list[dict[str, Any]]) -> list[dict[str, Any]]
     return serialize(root)
 
 
+def find_group_readme(
+    root_path: str, projects: list[dict[str, Any]]
+) -> str | None:
+    """Return the document ID used by GitLab as the top-level group README."""
+    profile_path = f"{root_path}/gitlab-profile"
+    profile = next(
+        (
+            project
+            for project in projects
+            if normalize(project["path"]) == normalize(profile_path)
+            and normalize(project["groupPath"]) == normalize(root_path)
+        ),
+        None,
+    )
+    if not profile:
+        return None
+    readmes = [
+        document
+        for document in profile["documents"]
+        if "/" not in document["path"]
+        and normalize(document["path"]).startswith("readme.")
+    ]
+    if not readmes:
+        return None
+    readmes.sort(
+        key=lambda document: (
+            normalize(document["path"]) != "readme.md",
+            normalize(document["path"]),
+        )
+    )
+    return readmes[0]["id"]
+
+
 class DocumentStore:
     def __init__(self, settings: Settings):
         self.settings = settings
@@ -257,6 +290,7 @@ class DocumentStore:
         return {
             "source": source,
             "root": nodes[root_path],
+            "homeDocumentId": find_group_readme(root_path, projects),
             "documents": docs,
             "stats": {"groups": len(nodes), "projects": len(projects), "documents": len(docs)},
         }
@@ -283,7 +317,7 @@ class DocumentStore:
 
     def tree(self) -> dict[str, Any]:
         data = self.load()
-        return {k: data[k] for k in ("source", "root", "stats")}
+        return {k: data[k] for k in ("source", "root", "homeDocumentId", "stats")}
 
     def document(self, doc_id: str) -> dict[str, Any] | None:
         return self.load()["documents"].get(doc_id)
