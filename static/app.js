@@ -62,6 +62,27 @@ function resolveLink(url, doc) {
   return { href: "#", external: false };
 }
 
+function resolveImageUrl(url, doc) {
+  if (/^https?:/i.test(url)) return url;
+  if (!doc || /^(javascript:|data:|vbscript:)/i.test(url) || !doc.webUrl) return "";
+
+  const marker = "/-/blob/";
+  const markerAt = doc.webUrl.indexOf(marker);
+  if (markerAt < 0) return "";
+  const projectUrl = doc.webUrl.slice(0, markerAt);
+  if (url.startsWith("/uploads/")) return `${projectUrl}${url}`;
+
+  const cleanUrl = url.split(/[?#]/, 1)[0];
+  let decodedPath = cleanUrl;
+  try { decodedPath = decodeURIComponent(cleanUrl); } catch {}
+  const base = doc.path.includes("/") ? doc.path.slice(0, doc.path.lastIndexOf("/") + 1) : "";
+  const targetPath = normalizeRepoPath(base + decodedPath);
+  const afterMarker = doc.webUrl.slice(markerAt + marker.length);
+  const branch = afterMarker.split("/")[0];
+  const encodedPath = targetPath.split("/").map(encodeURIComponent).join("/");
+  return `${projectUrl}/-/raw/${branch}/${encodedPath}`;
+}
+
 function inlineMarkdown(value, doc) {
   const tokens = [];
   const token = (html) => {
@@ -70,6 +91,12 @@ function inlineMarkdown(value, doc) {
   };
   let text = value
     .replace(/`([^`\n]+)`/g, (_, code) => token(`<code>${escapeHtml(code)}</code>`))
+    .replace(/!\[([^\]]*)\]\((\S+?)(?:\s+["']([^"']*)["'])?\)/g, (_, alt, url, title) => {
+      const source = resolveImageUrl(url, doc);
+      if (!source) return token(`<span class="image-error">画像を表示できません: ${escapeHtml(alt || url)}</span>`);
+      const titleAttr = title ? ` title="${escapeHtml(title)}"` : "";
+      return token(`<img src="${escapeHtml(source)}" alt="${escapeHtml(alt)}"${titleAttr} loading="lazy" decoding="async">`);
+    })
     .replace(/\[([^\]]+)\]\((\S+?)(?:\s+["']([^"']*)["'])?\)/g, (_, label, url, title) => {
       const resolved = resolveLink(url, doc);
       const titleAttr = title ? ` title="${escapeHtml(title)}"` : "";
