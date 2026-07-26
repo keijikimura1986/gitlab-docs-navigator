@@ -40,3 +40,37 @@ python app.py
 ```powershell
 python -m unittest discover -s tests
 ```
+
+## Azure Red Hat OpenShift
+
+ARO 用のコンテナ定義とマニフェストは、`Dockerfile` と
+`deploy/aro.yaml` にあります。
+
+1. `deploy/aro.yaml` の `GITLAB_URL`、`GITLAB_GROUP`、`YOUR_ACR` を環境に合わせて変更します。
+2. 対象の OpenShift プロジェクトで、GitLab トークンと ACR Pull Secret を作成します。
+
+```powershell
+oc create secret generic docsviewer-gitlab `
+  --from-literal=GITLAB_TOKEN="<GitLab token>"
+
+oc create secret docker-registry acr-pull-secret `
+  --docker-server="<ACR name>.azurecr.io" `
+  --docker-username="<ACR username>" `
+  --docker-password="<ACR password>" `
+  --docker-email="unused@example.com"
+```
+
+3. ACR でイメージをビルドし、マニフェストを適用します。
+
+```powershell
+az acr build `
+  --registry "<ACR name>" `
+  --image "docsviewer:1.0.0" `
+  .
+
+oc apply -f deploy/aro.yaml
+oc rollout status deployment/docsviewer
+oc get route docsviewer
+```
+
+GitLab トークンをソースコードやマニフェストへ直接記載しないでください。

@@ -1,0 +1,10 @@
+.git
+.github
+.azure
+__pycache__
+*.py[cod]
+tests
+.env
+deploy
+README.md
+LICENSE

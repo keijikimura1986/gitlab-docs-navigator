@@ -1,0 +1,111 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: docsviewer-config
+  labels:
+    app.kubernetes.io/name: docsviewer
+data:
+  GITLAB_URL: "https://gitlab.example.com"
+  GITLAB_GROUP: "your-group"
+  HOST: "0.0.0.0"
+  PORT: "8080"
+  CACHE_TTL_SECONDS: "300"
+  DOC_MAX_BYTES: "1000000"
+  DOC_EXTENSIONS: ".md,.mdx,.txt,.rst,.adoc"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: docsviewer
+  labels:
+    app.kubernetes.io/name: docsviewer
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: docsviewer
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: docsviewer
+    spec:
+      imagePullSecrets:
+        - name: acr-pull-secret
+      containers:
+        - name: docsviewer
+          # Replace YOUR_ACR with the Azure Container Registry name.
+          image: YOUR_ACR.azurecr.io/docsviewer:1.0.0
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: docsviewer-config
+            - secretRef:
+                name: docsviewer-gitlab
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            runAsNonRoot: true
+            seccompProfile:
+              type: RuntimeDefault
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: docsviewer
+  labels:
+    app.kubernetes.io/name: docsviewer
+spec:
+  selector:
+    app.kubernetes.io/name: docsviewer
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: docsviewer
+  labels:
+    app.kubernetes.io/name: docsviewer
+spec:
+  to:
+    kind: Service
+    name: docsviewer
+    weight: 100
+  port:
+    targetPort: http
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+  wildcardPolicy: None
