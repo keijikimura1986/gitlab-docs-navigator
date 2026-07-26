@@ -1,6 +1,8 @@
 import unittest
 
-from app import DocumentStore, Settings, heading, normalize, plain_text
+from unittest.mock import patch
+
+from app import DocumentStore, GitLabClient, Settings, heading, normalize, plain_text
 
 
 class TextTests(unittest.TestCase):
@@ -32,6 +34,50 @@ class StoreTests(unittest.TestCase):
     def test_search_is_nfkc_case_insensitive(self):
         results = self.store.search("ＰＯＬＩＣＹ")
         self.assertEqual(len(results), 1)
+
+
+class SettingsTests(unittest.TestCase):
+    def test_public_gitlab_does_not_require_token(self):
+        settings = Settings(
+            gitlab_url="https://gitlab.com",
+            token="",
+            group="test5830230",
+        )
+        self.assertTrue(settings.configured)
+
+    @patch("app.urllib.request.urlopen")
+    def test_client_omits_empty_private_token_header(self, urlopen):
+        response = urlopen.return_value.__enter__.return_value
+        response.read.return_value = b"{}"
+        client = GitLabClient(
+            Settings(
+                gitlab_url="https://gitlab.com",
+                token="",
+                group="test5830230",
+            )
+        )
+
+        client.get("groups/test5830230")
+
+        request = urlopen.call_args.args[0]
+        self.assertNotIn("Private-token", request.headers)
+
+    @patch("app.urllib.request.urlopen")
+    def test_client_sends_configured_private_token(self, urlopen):
+        response = urlopen.return_value.__enter__.return_value
+        response.read.return_value = b"{}"
+        client = GitLabClient(
+            Settings(
+                gitlab_url="https://gitlab.com",
+                token="secret",
+                group="test5830230",
+            )
+        )
+
+        client.get("groups/test5830230")
+
+        request = urlopen.call_args.args[0]
+        self.assertEqual(request.headers["Private-token"], "secret")
 
 
 if __name__ == "__main__":

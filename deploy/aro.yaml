@@ -5,8 +5,8 @@ metadata:
   labels:
     app.kubernetes.io/name: docsviewer
 data:
-  GITLAB_URL: "https://gitlab.example.com"
-  GITLAB_GROUP: "your-group"
+  GITLAB_URL: "https://gitlab.com"
+  GITLAB_GROUP: "test5830230"
   HOST: "0.0.0.0"
   PORT: "8080"
   CACHE_TTL_SECONDS: "300"
@@ -45,6 +45,7 @@ spec:
                 name: docsviewer-config
             - secretRef:
                 name: docsviewer-gitlab
+                optional: true
           resources:
             requests:
               cpu: 100m

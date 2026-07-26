@@ -6,7 +6,7 @@ GitLab のグループ、サブグループ、リポジトリに分散した Mar
 
 ```powershell
 $env:GITLAB_URL = "https://gitlab.example.com"
-$env:GITLAB_TOKEN = "glpat-..."
+$env:GITLAB_TOKEN = "glpat-..." # 公開リポジトリだけなら省略可能
 $env:GITLAB_GROUP = "your-group"
 python app.py
 ```
@@ -18,14 +18,14 @@ python app.py
 | 変数 | 既定値 | 説明 |
 |---|---|---|
 | `GITLAB_URL` | なし | GitLab の URL |
-| `GITLAB_TOKEN` | なし | `read_api` / `read_repository` 権限のアクセストークン |
+| `GITLAB_TOKEN` | なし | 任意。非公開文書では `read_api` / `read_repository` 権限のアクセストークン |
 | `GITLAB_GROUP` | なし | ルートグループの ID またはフルパス |
 | `DOC_EXTENSIONS` | `.md,.mdx,.txt,.rst,.adoc` | 収集対象の拡張子 |
 | `DOC_MAX_BYTES` | `1000000` | 文書 1 ファイルの最大サイズ |
 | `CACHE_TTL_SECONDS` | `300` | GitLab データのキャッシュ秒数 |
 | `PORT` | `8000` | 待受ポート |
 
-トークンはサーバー内だけで使われ、ブラウザには送信されません。画面右上の「GitLabから再取得」でキャッシュを更新できます。
+公開グループと公開リポジトリだけを扱う場合、トークンは不要です。指定したトークンはサーバー内だけで使われ、ブラウザには送信されません。画面右上の「GitLabから再取得」でキャッシュを更新できます。
 
 ## API
 
@@ -47,12 +47,9 @@ ARO 用のコンテナ定義とマニフェストは、`Dockerfile` と
 `deploy/aro.yaml` にあります。
 
 1. `deploy/aro.yaml` の `GITLAB_URL`、`GITLAB_GROUP`、`YOUR_ACR` を環境に合わせて変更します。
-2. 対象の OpenShift プロジェクトで、GitLab トークンと ACR Pull Secret を作成します。
+2. 対象の OpenShift プロジェクトで ACR Pull Secret を作成します。非公開文書を取得する場合だけ、GitLab トークンの Secret も作成します。
 
 ```powershell
-oc create secret generic docsviewer-gitlab `
-  --from-literal=GITLAB_TOKEN="<GitLab token>"
-
 oc create secret docker-registry acr-pull-secret `
   --docker-server="<ACR name>.azurecr.io" `
   --docker-username="<ACR username>" `
@@ -71,6 +68,13 @@ az acr build `
 oc apply -f deploy/aro.yaml
 oc rollout status deployment/docsviewer
 oc get route docsviewer
+```
+
+非公開文書を取得する場合は、追加で次の Secret を作成します。
+
+```powershell
+oc create secret generic docsviewer-gitlab `
+  --from-literal=GITLAB_TOKEN="<GitLab token>"
 ```
 
 GitLab トークンをソースコードやマニフェストへ直接記載しないでください。

@@ -40,7 +40,7 @@ class Settings:
 
     @property
     def configured(self) -> bool:
-        return bool(self.gitlab_url and self.token and self.group)
+        return bool(self.gitlab_url and self.group)
 
 
 class GitLabClient:
@@ -52,10 +52,10 @@ class GitLabClient:
         url = f"{self.settings.gitlab_url}/api/v4/{path.lstrip('/')}"
         if query:
             url += "?" + query
-        request = urllib.request.Request(
-            url,
-            headers={"PRIVATE-TOKEN": self.settings.token, "User-Agent": "gitlab-docs-navigator/1.0"},
-        )
+        headers = {"User-Agent": "gitlab-docs-navigator/1.0"}
+        if self.settings.token:
+            headers["PRIVATE-TOKEN"] = self.settings.token
+        request = urllib.request.Request(url, headers=headers)
         try:
             with urllib.request.urlopen(request, timeout=30) as response:
                 return json.loads(response.read().decode("utf-8"))
@@ -118,9 +118,7 @@ class DocumentStore:
     def _fetch_gitlab(self) -> dict[str, Any]:
         client = GitLabClient(self.settings)
         root = client.get(f"groups/{urllib.parse.quote(self.settings.group, safe='')}")
-        groups = client.pages(
-            f"groups/{root['id']}/descendant_groups", {"order_by": "full_path", "sort": "asc"}
-        )
+        groups = client.pages(f"groups/{root['id']}/descendant_groups")
         groups_by_id = {g["id"]: g for g in [root, *groups]}
         projects: dict[int, dict[str, Any]] = {}
         for group in groups_by_id.values():
