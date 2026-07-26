@@ -86,6 +86,17 @@ mark { padding: 1px 2px; background: #ffe49a; color: inherit; border-radius: 2px
 .markdown pre code { padding: 0; background: none; }
 .markdown blockquote { margin-left: 0; padding: 10px 20px; border-left: 3px solid var(--accent); background: var(--accent-soft); color: #466056; }
 .markdown a { color: var(--accent); }
+.markdown a:hover { text-decoration-thickness: 2px; }
+.markdown hr { margin: 2.2em 0; border: 0; border-top: 1px solid var(--line); }
+.markdown del { color: var(--muted); }
+.markdown .table-scroll { max-width: 100%; margin: 1.6em 0; overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; background: var(--white); }
+.markdown table { width: 100%; border-collapse: collapse; font-size: 14px; line-height: 1.55; }
+.markdown th, .markdown td { min-width: 110px; padding: 11px 14px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); vertical-align: top; }
+.markdown th:last-child, .markdown td:last-child { border-right: 0; }
+.markdown tbody tr:last-child td { border-bottom: 0; }
+.markdown th { background: #edf2ee; color: #37443e; font-weight: 700; text-align: left; white-space: nowrap; }
+.markdown tbody tr:nth-child(even) { background: #fafbf9; }
+.markdown tbody tr:hover { background: var(--accent-soft); }
 .hidden { display: none !important; }
 .empty { padding: 60px 0; color: var(--muted); text-align: center; }
 .toast { position: fixed; right: 24px; bottom: 24px; max-width: 420px; padding: 13px 18px; background: var(--ink); color: white; border-radius: 8px; box-shadow: 0 8px 30px #0003; z-index: 40; font-size: 13px; }
