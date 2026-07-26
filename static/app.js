@@ -1,5 +1,5 @@
 const $ = (selector) => document.querySelector(selector);
-const state = { tree: null, query: "", activeDoc: null, documentIndex: new Map() };
+const state = { tree: null, query: "", activeDoc: null, highlightQuery: "", documentIndex: new Map() };
 const views = ["#welcome", "#searchView", "#docView"];
 
 function showView(selector) {
@@ -258,19 +258,78 @@ async function loadTree() {
   $("#stats").innerHTML = `${data.source === "demo" ? '<span class="demo-badge">DEMO MODE</span><br>' : ""}${data.stats.groups} グループ ・ ${data.stats.projects} リポジトリ<br>${data.stats.documents} 文書をインデックス`;
 }
 
-async function openDoc(id, push = true) {
+function queryTerms(query) {
+  return [...query.matchAll(/"([^"]+)"|(\S+)/g)]
+    .map((match) => match[1] || match[2])
+    .filter(Boolean);
+}
+
+function highlightDocument(query) {
+  const status = $("#highlightStatus");
+  status.classList.add("hidden");
+  status.textContent = "";
+  const terms = queryTerms(query);
+  if (!terms.length) return;
+
+  const escapedTerms = terms
+    .sort((a, b) => b.length - a.length)
+    .map((term) => term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  const pattern = new RegExp(`(${escapedTerms.join("|")})`, "giu");
+  const root = $("#docContent");
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      if (!node.nodeValue.trim() || node.parentElement.closest("mark, script, style, h1")) {
+        return NodeFilter.FILTER_REJECT;
+      }
+      pattern.lastIndex = 0;
+      return pattern.test(node.nodeValue) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
+    }
+  });
+  const matchingNodes = [];
+  while (walker.nextNode()) matchingNodes.push(walker.currentNode);
+
+  let count = 0;
+  matchingNodes.forEach((node) => {
+    const fragment = document.createDocumentFragment();
+    let lastIndex = 0;
+    pattern.lastIndex = 0;
+    for (const match of node.nodeValue.matchAll(pattern)) {
+      fragment.append(document.createTextNode(node.nodeValue.slice(lastIndex, match.index)));
+      const mark = document.createElement("mark");
+      mark.className = "search-highlight";
+      mark.textContent = match[0];
+      fragment.append(mark);
+      lastIndex = match.index + match[0].length;
+      count += 1;
+    }
+    fragment.append(document.createTextNode(node.nodeValue.slice(lastIndex)));
+    node.replaceWith(fragment);
+  });
+
+  if (count) {
+    status.textContent = `検索語「${query}」に一致する箇所: ${count}件`;
+    status.classList.remove("hidden");
+  }
+}
+
+async function openDoc(id, push = true, highlightQuery = "") {
   try {
     const doc = await api(`/api/doc?id=${encodeURIComponent(id)}`);
     state.activeDoc = id;
+    state.highlightQuery = highlightQuery;
     $("#docTitle").textContent = doc.title;
     $("#filePath").textContent = doc.path;
     $("#breadcrumbs").innerHTML = [...doc.groupPath.split("/"), doc.project].map((x) => `<span>${escapeHtml(x)}</span>`).join("");
     $("#docContent").innerHTML = markdown(doc.content, doc);
+    highlightDocument(highlightQuery);
     $("#gitlabLink").classList.toggle("hidden", !doc.webUrl);
     $("#gitlabLink").href = doc.webUrl || "#";
     document.querySelectorAll(".tree-doc").forEach((node) => node.classList.toggle("active", node.dataset.docId === id));
     showView("#docView");
-    if (push) history.pushState({ doc: id }, "", `?doc=${encodeURIComponent(id)}`);
+    if (push) {
+      const queryPart = highlightQuery ? `&q=${encodeURIComponent(highlightQuery)}` : "";
+      history.pushState({ doc: id, query: highlightQuery }, "", `?doc=${encodeURIComponent(id)}${queryPart}`);
+    }
     closeMenu();
     window.scrollTo({ top: 0, behavior: "smooth" });
   } catch (error) { toast(error.message); }
@@ -318,7 +377,10 @@ document.addEventListener("click", (event) => {
   const docButton = event.target.closest("[data-doc-id]");
   if (docButton) {
     event.preventDefault();
-    openDoc(docButton.dataset.docId);
+    const fromSearch = Boolean(docButton.closest("#results"));
+    const fromDocument = Boolean(docButton.closest("#docContent"));
+    const query = fromSearch ? state.query : fromDocument ? state.highlightQuery : "";
+    openDoc(docButton.dataset.docId, true, query);
   }
   const quick = event.target.closest("[data-query]");
   if (quick) { $("#searchInput").value = quick.dataset.query; search(quick.dataset.query); }
@@ -339,7 +401,12 @@ function toast(message) { clearTimeout(toastTimer); $("#toast").textContent = me
 window.addEventListener("popstate", () => route(false));
 function route(push = false) {
   const params = new URLSearchParams(location.search);
-  if (params.has("doc")) openDoc(params.get("doc"), push);
+  if (params.has("doc")) {
+    const query = params.get("q") || "";
+    state.query = query;
+    $("#searchInput").value = query;
+    openDoc(params.get("doc"), push, query);
+  }
   else if (params.has("q")) { $("#searchInput").value = params.get("q"); search(params.get("q"), push); }
   else showView("#welcome");
 }
