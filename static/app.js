@@ -57,13 +57,28 @@ function groupHtml(group, root = false) {
     <details class="tree-project-wrap" open>
       <summary class="tree-project"><span class="tree-icon">◇</span><span>${escapeHtml(project.name)}</span></summary>
       <div class="tree-children">
-        ${project.documents.map((doc) => `<button class="tree-doc" data-doc-id="${escapeHtml(doc.id)}"><span class="tree-icon">▤</span><span>${escapeHtml(doc.title)}</span></button>`).join("") || '<div class="tree-doc">文書なし</div>'}
+        ${documentTreeHtml(project.documentTree || project.documents.map((doc) => ({ type: "document", ...doc }))) || '<div class="tree-doc">文書なし</div>'}
       </div>
     </details>`).join("");
   return `<div class="tree-group"><details ${root ? "open" : ""}>
     <summary><span class="tree-icon">□</span><span>${escapeHtml(group.name)}</span></summary>
     <div class="tree-children">${childGroups}${projects}</div>
   </details></div>`;
+}
+
+function documentTreeHtml(nodes) {
+  return nodes.map((node) => {
+    if (node.type === "directory") {
+      return `<details class="tree-directory" open>
+        <summary><span class="tree-icon">▱</span><span>${escapeHtml(node.name)}</span></summary>
+        <div class="tree-children">${documentTreeHtml(node.children)}</div>
+      </details>`;
+    }
+    const fileName = node.path.split("/").pop();
+    return `<button class="tree-doc" data-doc-id="${escapeHtml(node.id)}" title="${escapeHtml(node.title)}">
+      <span class="tree-icon">▤</span><span>${escapeHtml(fileName)}</span>
+    </button>`;
+  }).join("");
 }
 
 async function loadTree() {

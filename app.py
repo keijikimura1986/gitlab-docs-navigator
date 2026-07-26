@@ -96,6 +96,40 @@ def plain_text(content: str) -> str:
     return re.sub(r"\s+", " ", value).strip()
 
 
+def build_document_tree(documents: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Build a stable directory tree from flat repository document paths."""
+    root: dict[str, Any] = {"directories": {}, "documents": []}
+    for document in documents:
+        parts = [part for part in document["path"].split("/") if part]
+        node = root
+        for directory in parts[:-1]:
+            node = node["directories"].setdefault(
+                directory, {"directories": {}, "documents": []}
+            )
+        node["documents"].append(document)
+
+    def serialize(node: dict[str, Any]) -> list[dict[str, Any]]:
+        directories = [
+            {
+                "type": "directory",
+                "name": name,
+                "children": serialize(child),
+            }
+            for name, child in sorted(
+                node["directories"].items(), key=lambda item: normalize(item[0])
+            )
+        ]
+        files = [
+            {"type": "document", **document}
+            for document in sorted(
+                node["documents"], key=lambda item: normalize(item["path"].rsplit("/", 1)[-1])
+            )
+        ]
+        return [*directories, *files]
+
+    return serialize(root)
+
+
 class DocumentStore:
     def __init__(self, settings: Settings):
         self.settings = settings
@@ -175,6 +209,7 @@ class DocumentStore:
                     "groupPath": project["namespace"]["full_path"],
                     "webUrl": project["web_url"],
                     "documents": project_docs,
+                    "documentTree": build_document_tree(project_docs),
                 }
             )
         return self._assemble(root["full_path"], root["name"], groups_by_id.values(), project_nodes, docs, "gitlab")
@@ -229,7 +264,8 @@ class DocumentStore:
         for index, (doc_id, title, path, project, group_path, content) in enumerate(samples):
             doc = {"id": doc_id, "title": title, "path": path, "project": project, "projectPath": f"{group_path}/{project}", "groupPath": group_path, "content": content, "text": plain_text(content), "webUrl": "", "updatedAt": None}
             docs[doc_id] = doc
-            projects.append({"id": 100 + index, "name": project, "path": doc["projectPath"], "groupPath": group_path, "webUrl": "", "documents": [self._doc_summary(doc)]})
+            summary = self._doc_summary(doc)
+            projects.append({"id": 100 + index, "name": project, "path": doc["projectPath"], "groupPath": group_path, "webUrl": "", "documents": [summary], "documentTree": build_document_tree([summary])})
         groups = [
             {"id": 1, "name": "Company Docs", "full_path": "company"},
             {"id": 2, "name": "Platform", "full_path": "company/platform"},
@@ -281,6 +317,11 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
         self.wfile.write(body)
+
+    def end_headers(self) -> None:
+        if not urllib.parse.urlparse(self.path).path.startswith("/api/"):
+            self.send_header("Cache-Control", "no-cache")
+        super().end_headers()
 
     def do_GET(self) -> None:
         parsed = urllib.parse.urlparse(self.path)

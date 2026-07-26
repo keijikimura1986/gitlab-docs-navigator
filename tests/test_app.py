@@ -2,7 +2,15 @@ import unittest
 
 from unittest.mock import patch
 
-from app import DocumentStore, GitLabClient, Settings, heading, normalize, plain_text
+from app import (
+    DocumentStore,
+    GitLabClient,
+    Settings,
+    build_document_tree,
+    heading,
+    normalize,
+    plain_text,
+)
 
 
 class TextTests(unittest.TestCase):
@@ -14,6 +22,21 @@ class TextTests(unittest.TestCase):
 
     def test_plain_text_removes_markdown_decoration(self):
         self.assertIn("link", plain_text("## Title\n[a link](https://example.com)"))
+
+    def test_document_tree_reflects_nested_directories(self):
+        documents = [
+            {"id": "1", "path": "README.md", "title": "Root"},
+            {"id": "2", "path": "guide/setup/install.md", "title": "Install"},
+            {"id": "3", "path": "guide/overview.md", "title": "Overview"},
+        ]
+
+        tree = build_document_tree(documents)
+
+        self.assertEqual([node["name"] for node in tree if node["type"] == "directory"], ["guide"])
+        guide = tree[0]
+        self.assertEqual(guide["children"][0]["name"], "setup")
+        self.assertEqual(guide["children"][1]["path"], "guide/overview.md")
+        self.assertEqual(tree[1]["path"], "README.md")
 
 
 class StoreTests(unittest.TestCase):
