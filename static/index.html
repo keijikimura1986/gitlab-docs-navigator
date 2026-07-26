@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="GitLabの階層化された文書を横断して閲覧・検索">
+  <title>GitLab Docs Navigator</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <button class="mobile-menu" id="menuButton" aria-label="ナビゲーションを開く">☰</button>
+    <a class="brand" href="/" aria-label="ホーム">
+      <span class="brand-mark">D</span>
+      <span><strong>Docs Navigator</strong><small>GitLab knowledge workspace</small></span>
+    </a>
+    <div class="search-wrap">
+      <span class="search-icon">⌕</span>
+      <input id="searchInput" type="search" placeholder="文書を検索… 例: デプロイ 手順" autocomplete="off">
+      <kbd>⌘ K</kbd>
+    </div>
+    <button class="refresh-button" id="refreshButton" title="GitLabから再取得">↻ <span>再取得</span></button>
+  </header>
+
+  <div class="app-shell">
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-head">
+        <span>ドキュメント</span>
+        <button id="collapseAll" title="すべて閉じる">−</button>
+      </div>
+      <nav id="tree" aria-label="文書階層"><div class="skeleton tall"></div></nav>
+      <div class="sidebar-stats" id="stats"></div>
+    </aside>
+
+    <main class="main">
+      <section id="welcome" class="welcome">
+        <div class="eyebrow">KNOWLEDGE WORKSPACE</div>
+        <h1>必要な文書へ、<br><em>迷わずたどり着く。</em></h1>
+        <p>グループから文書までをひとつの階層で眺め、すべてのリポジトリを横断して検索できます。</p>
+        <div class="quick-grid">
+          <button class="quick-card" data-query="手順"><span>↗</span><strong>手順を探す</strong><small>運用・開発フローを横断検索</small></button>
+          <button class="quick-card" data-query="ポリシー"><span>◇</span><strong>ポリシーを確認</strong><small>規約とガイドラインを検索</small></button>
+        </div>
+      </section>
+
+      <section id="searchView" class="search-view hidden">
+        <div class="result-heading">
+          <div><div class="eyebrow">SEARCH RESULTS</div><h1>「<span id="queryLabel"></span>」の検索結果</h1></div>
+          <strong id="resultCount"></strong>
+        </div>
+        <div id="results"></div>
+      </section>
+
+      <article id="docView" class="doc-view hidden">
+        <div class="breadcrumbs" id="breadcrumbs"></div>
+        <div class="doc-header">
+          <div><div class="file-path" id="filePath"></div><h1 id="docTitle"></h1></div>
+          <a id="gitlabLink" class="gitlab-link hidden" target="_blank" rel="noopener">GitLabで開く ↗</a>
+        </div>
+        <div id="docContent" class="markdown"></div>
+      </article>
+    </main>
+    <div class="overlay" id="overlay"></div>
+  </div>
+  <div class="toast hidden" id="toast" role="status"></div>
+  <script src="/app.js"></script>
+</body>
+</html>
