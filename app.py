@@ -5,6 +5,9 @@ from __future__ import annotations
 import json
 import os
 import re
+import secrets
+import hashlib
+import base64
 import threading
 import time
 import unicodedata
@@ -37,10 +40,22 @@ class Settings:
     )
     max_bytes: int = int(os.getenv("DOC_MAX_BYTES", "1000000"))
     cache_ttl: int = int(os.getenv("CACHE_TTL_SECONDS", "300"))
+    entra_tenant_id: str = os.getenv("ENTRA_TENANT_ID", "")
+    entra_client_id: str = os.getenv("ENTRA_CLIENT_ID", "")
+    entra_client_secret: str = os.getenv("ENTRA_CLIENT_SECRET", "")
+    entra_redirect_uri: str = os.getenv("ENTRA_REDIRECT_URI", "")
 
     @property
     def configured(self) -> bool:
         return bool(self.gitlab_url and self.group)
+
+    @property
+    def entra_enabled(self) -> bool:
+        return bool(
+            self.entra_tenant_id
+            and self.entra_client_id
+            and self.entra_client_secret
+        )
 
 
 class GitLabClient:
@@ -343,9 +358,129 @@ class DocumentStore:
 
 SETTINGS = Settings()
 STORE = DocumentStore(SETTINGS)
+AUTH_LOCK = threading.Lock()
+AUTH_PENDING: dict[str, dict[str, Any]] = {}
+AUTH_SESSIONS: dict[str, dict[str, Any]] = {}
+AUTH_TTL = 8 * 60 * 60
+
+
+def _b64url(value: bytes) -> str:
+    return base64.urlsafe_b64encode(value).decode("ascii").rstrip("=")
+
+
+def _prune_auth() -> None:
+    now = time.time()
+    with AUTH_LOCK:
+        for collection in (AUTH_PENDING, AUTH_SESSIONS):
+            for key in [key for key, value in collection.items() if value["expires"] < now]:
+                collection.pop(key, None)
 
 
 class Handler(SimpleHTTPRequestHandler):
+    def _cookies(self) -> dict[str, str]:
+        result = {}
+        for item in self.headers.get("Cookie", "").split(";"):
+            if "=" in item:
+                key, value = item.strip().split("=", 1)
+                result[key] = value
+        return result
+
+    def _session(self) -> dict[str, Any] | None:
+        if not SETTINGS.entra_enabled:
+            return {"name": "authentication disabled"}
+        _prune_auth()
+        session_id = self._cookies().get("docs_session", "")
+        with AUTH_LOCK:
+            return AUTH_SESSIONS.get(session_id)
+
+    def _redirect(self, location: str, cookie: str | None = None) -> None:
+        self.send_response(HTTPStatus.FOUND)
+        self.send_header("Location", location)
+        if cookie:
+            self.send_header("Set-Cookie", cookie)
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+
+    def _external_url(self, path: str) -> str:
+        if SETTINGS.entra_redirect_uri:
+            parsed = urllib.parse.urlparse(SETTINGS.entra_redirect_uri)
+            return urllib.parse.urlunparse((parsed.scheme, parsed.netloc, path, "", "", ""))
+        proto = self.headers.get("X-Forwarded-Proto", "http").split(",")[0].strip()
+        host = self.headers.get("X-Forwarded-Host", self.headers.get("Host", "localhost"))
+        return f"{proto}://{host}{path}"
+
+    def _auth_login(self) -> None:
+        state = secrets.token_urlsafe(32)
+        verifier = secrets.token_urlsafe(64)
+        nonce = secrets.token_urlsafe(32)
+        with AUTH_LOCK:
+            AUTH_PENDING[state] = {
+                "verifier": verifier, "nonce": nonce, "expires": time.time() + 600
+            }
+        params = {
+            "client_id": SETTINGS.entra_client_id,
+            "response_type": "code",
+            "redirect_uri": SETTINGS.entra_redirect_uri or self._external_url("/auth/callback"),
+            "response_mode": "query",
+            "scope": "openid profile email",
+            "state": state,
+            "nonce": nonce,
+            "code_challenge": _b64url(hashlib.sha256(verifier.encode()).digest()),
+            "code_challenge_method": "S256",
+        }
+        endpoint = (
+            f"https://login.microsoftonline.com/{urllib.parse.quote(SETTINGS.entra_tenant_id)}/"
+            f"oauth2/v2.0/authorize?{urllib.parse.urlencode(params)}"
+        )
+        self._redirect(endpoint)
+
+    def _auth_callback(self, parsed: urllib.parse.ParseResult) -> None:
+        query = urllib.parse.parse_qs(parsed.query)
+        state = query.get("state", [""])[0]
+        code = query.get("code", [""])[0]
+        with AUTH_LOCK:
+            pending = AUTH_PENDING.pop(state, None)
+        if not pending or pending["expires"] < time.time() or not code:
+            self._json({"error": "Entra ID認証の応答を確認できませんでした"}, HTTPStatus.BAD_REQUEST)
+            return
+        redirect_uri = SETTINGS.entra_redirect_uri or self._external_url("/auth/callback")
+        form = urllib.parse.urlencode({
+            "client_id": SETTINGS.entra_client_id,
+            "client_secret": SETTINGS.entra_client_secret,
+            "grant_type": "authorization_code",
+            "code": code,
+            "redirect_uri": redirect_uri,
+            "code_verifier": pending["verifier"],
+            "scope": "openid profile email",
+        }).encode()
+        token_url = (
+            f"https://login.microsoftonline.com/{urllib.parse.quote(SETTINGS.entra_tenant_id)}"
+            "/oauth2/v2.0/token"
+        )
+        try:
+            with urllib.request.urlopen(urllib.request.Request(token_url, data=form), timeout=30) as response:
+                tokens = json.loads(response.read())
+            user_request = urllib.request.Request(
+                "https://graph.microsoft.com/oidc/userinfo",
+                headers={"Authorization": f"Bearer {tokens['access_token']}"},
+            )
+            with urllib.request.urlopen(user_request, timeout=30) as response:
+                user = json.loads(response.read())
+        except (KeyError, urllib.error.URLError, json.JSONDecodeError) as exc:
+            self._json({"error": f"Entra ID認証に失敗しました: {exc}"}, HTTPStatus.BAD_GATEWAY)
+            return
+        session_id = secrets.token_urlsafe(32)
+        with AUTH_LOCK:
+            AUTH_SESSIONS[session_id] = {
+                "name": user.get("name") or user.get("email") or user.get("sub"),
+                "sub": user.get("sub"), "expires": time.time() + AUTH_TTL,
+            }
+        secure = "; Secure" if redirect_uri.startswith("https://") else ""
+        self._redirect(
+            "/",
+            f"docs_session={session_id}; Path=/; HttpOnly; SameSite=Lax; Max-Age={AUTH_TTL}{secure}",
+        )
+
     def translate_path(self, path: str) -> str:
         relative = urllib.parse.urlparse(path).path.lstrip("/") or "index.html"
         return str(STATIC_DIR / relative)
@@ -368,7 +503,30 @@ class Handler(SimpleHTTPRequestHandler):
         parsed = urllib.parse.urlparse(self.path)
         try:
             if parsed.path == "/api/health":
-                self._json({"ok": True, "configured": SETTINGS.configured})
+                self._json({
+                    "ok": True,
+                    "configured": SETTINGS.configured,
+                    "entraEnabled": SETTINGS.entra_enabled,
+                })
+            elif parsed.path == "/auth/login" and SETTINGS.entra_enabled:
+                self._auth_login()
+            elif parsed.path == "/auth/callback" and SETTINGS.entra_enabled:
+                self._auth_callback(parsed)
+            elif parsed.path == "/auth/logout":
+                session_id = self._cookies().get("docs_session", "")
+                with AUTH_LOCK:
+                    AUTH_SESSIONS.pop(session_id, None)
+                self._redirect("/", "docs_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0")
+            elif SETTINGS.entra_enabled and not self._session():
+                if parsed.path.startswith("/api/"):
+                    self._json({"error": "Entra IDでのログインが必要です", "loginUrl": "/auth/login"}, HTTPStatus.UNAUTHORIZED)
+                elif parsed.path in ("/", "/index.html"):
+                    self._redirect("/auth/login")
+                else:
+                    super().do_GET()
+            elif parsed.path == "/api/me":
+                session = self._session()
+                self._json({"authenticated": True, "name": session.get("name")})
             elif parsed.path == "/api/tree":
                 self._json(STORE.tree())
             elif parsed.path == "/api/doc":
@@ -388,6 +546,9 @@ class Handler(SimpleHTTPRequestHandler):
             self._json({"error": "サーバー内部でエラーが発生しました"}, HTTPStatus.INTERNAL_SERVER_ERROR)
 
     def do_POST(self) -> None:
+        if SETTINGS.entra_enabled and not self._session():
+            self._json({"error": "Entra IDでのログインが必要です", "loginUrl": "/auth/login"}, HTTPStatus.UNAUTHORIZED)
+            return
         if urllib.parse.urlparse(self.path).path != "/api/refresh":
             self._json({"error": "APIが見つかりません"}, HTTPStatus.NOT_FOUND)
             return

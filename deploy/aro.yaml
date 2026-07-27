@@ -46,6 +46,9 @@ spec:
             - secretRef:
                 name: docsviewer-gitlab
                 optional: true
+            - secretRef:
+                name: docsviewer-entra
+                optional: true
           resources:
             requests:
               cpu: 100m

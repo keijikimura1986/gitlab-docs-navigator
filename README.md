@@ -25,6 +25,33 @@ python app.py
 | `CACHE_TTL_SECONDS` | `300` | GitLab データのキャッシュ秒数 |
 | `PORT` | `8000` | 待受ポート |
 
+### Microsoft Entra ID でブラウザ認証
+
+Entra ID のアプリ登録で Web リダイレクト URI（例:
+`https://docs.example.com/auth/callback`）を登録し、次の環境変数をすべて設定すると、
+画面と API へのアクセス時にブラウザが Microsoft のサインイン画面へ遷移します。
+
+| 環境変数 | 説明 |
+|---|---|
+| `ENTRA_TENANT_ID` | Entra ID のテナント ID |
+| `ENTRA_CLIENT_ID` | アプリ登録のクライアント ID |
+| `ENTRA_CLIENT_SECRET` | アプリ登録のクライアントシークレット |
+| `ENTRA_REDIRECT_URI` | 登録した完全なコールバック URL（推奨） |
+
+Entra ID はこのアプリを閲覧できるユーザーの認証に使用します。GitLab API の
+アクセスには、従来どおりサーバー側の `GITLAB_TOKEN` を使用します。クライアント
+シークレットとGitLabトークンは Secret として管理してください。
+
+ARO では次のように Secret を作成できます。
+
+```powershell
+oc create secret generic docsviewer-entra `
+  --from-literal=ENTRA_TENANT_ID="<tenant ID>" `
+  --from-literal=ENTRA_CLIENT_ID="<client ID>" `
+  --from-literal=ENTRA_CLIENT_SECRET="<client secret>" `
+  --from-literal=ENTRA_REDIRECT_URI="https://<route host>/auth/callback"
+```
+
 公開グループと公開リポジトリだけを扱う場合、トークンは不要です。指定したトークンはサーバー内だけで使われ、ブラウザには送信されません。画面右上の「GitLabから再取得」でキャッシュを更新できます。
 
 ## API

@@ -98,6 +98,18 @@ class StoreTests(unittest.TestCase):
 
 
 class SettingsTests(unittest.TestCase):
+    def test_entra_requires_all_confidential_client_settings(self):
+        self.assertTrue(Settings(
+            entra_tenant_id="tenant",
+            entra_client_id="client",
+            entra_client_secret="secret",
+        ).entra_enabled)
+        self.assertFalse(Settings(
+            entra_tenant_id="tenant",
+            entra_client_id="client",
+            entra_client_secret="",
+        ).entra_enabled)
+
     def test_public_gitlab_does_not_require_token(self):
         settings = Settings(
             gitlab_url="https://gitlab.com",
