@@ -4,14 +4,15 @@ GitLab のグループ、サブグループ、リポジトリに分散した Mar
 
 ## 起動
 
+`.env.example` を `.env` にコピーし、接続先を編集します。
+
 ```powershell
-$env:GITLAB_URL = "https://gitlab.example.com"
-$env:GITLAB_TOKEN = "glpat-..." # 公開リポジトリだけなら省略可能
-$env:GITLAB_GROUP = "your-group"
+Copy-Item .env.example .env
+# .env の GITLAB_URL、GITLAB_GROUP、必要に応じて GITLAB_TOKEN を編集
 python app.py
 ```
 
-ブラウザで <http://localhost:8000> を開きます。環境変数を設定しない場合は、組み込みのデモ文書が表示されます。
+起動時にプロジェクト直下の `.env` が自動で読み込まれます。OS 側ですでに設定されている環境変数は `.env` より優先されます。ブラウザで <http://localhost:8000> を開きます。環境変数を設定しない場合は、組み込みのデモ文書が表示されます。
 
 ### 環境変数
 

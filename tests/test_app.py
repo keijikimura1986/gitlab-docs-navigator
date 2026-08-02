@@ -1,4 +1,7 @@
 import unittest
+import os
+import tempfile
+from pathlib import Path
 
 from unittest.mock import patch
 
@@ -9,9 +12,26 @@ from app import (
     build_document_tree,
     find_group_readme,
     heading,
+    load_dotenv,
     normalize,
     plain_text,
 )
+
+
+class DotenvTests(unittest.TestCase):
+    def test_loads_values_and_preserves_existing_environment(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / ".env"
+            path.write_text(
+                "GITLAB_URL=https://gitlab.example.com\n"
+                "GITLAB_GROUP='docs/team'\n"
+                "IGNORED LINE\n",
+                encoding="utf-8",
+            )
+            with patch.dict(os.environ, {"GITLAB_URL": "https://override.example.com"}, clear=True):
+                load_dotenv(path)
+                self.assertEqual(os.environ["GITLAB_URL"], "https://override.example.com")
+                self.assertEqual(os.environ["GITLAB_GROUP"], "docs/team")
 
 
 class TextTests(unittest.TestCase):
