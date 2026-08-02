@@ -1,5 +1,12 @@
 const $ = (selector) => document.querySelector(selector);
-const state = { tree: null, query: "", activeDoc: null, highlightQuery: "", documentIndex: new Map() };
+const state = {
+  tree: null,
+  query: "",
+  activeDoc: null,
+  highlightQuery: "",
+  documentIndex: new Map(),
+  documentUrlIndex: new Map()
+};
 const views = ["#welcome", "#searchView", "#docView"];
 const SIDEBAR_DEFAULT_WIDTH = 292;
 const SIDEBAR_MIN_WIDTH = 220;
@@ -74,14 +81,33 @@ function normalizeRepoPath(path) {
   return parts.join("/");
 }
 
-function resolveLink(url, doc) {
-  if (/^(https?:|mailto:)/i.test(url)) {
-    return { href: url, external: /^https?:/i.test(url) };
+function normalizedDocumentUrl(url, base) {
+  try {
+    const parsed = new URL(url, base);
+    const pathname = decodeURIComponent(parsed.pathname).replace(/\/+$/, "");
+    return `${parsed.origin}${pathname}`;
+  } catch {
+    return "";
   }
+}
+
+function resolveLink(url, doc) {
+  if (/^mailto:/i.test(url)) return { href: url, external: false };
   if (url.startsWith("#")) return { href: url, external: false };
   if (!doc || /^(javascript:|data:|vbscript:)/i.test(url)) return { href: "#", external: false };
 
   const [pathWithQuery, anchor = ""] = url.split("#", 2);
+  const indexedUrl = normalizedDocumentUrl(pathWithQuery, doc.webUrl);
+  const linkedDocument = state.documentUrlIndex.get(indexedUrl);
+  if (linkedDocument) {
+    return {
+      href: `?doc=${encodeURIComponent(linkedDocument.id)}${anchor ? `#${encodeURIComponent(anchor)}` : ""}`,
+      docId: linkedDocument.id,
+      external: false
+    };
+  }
+  if (/^https?:/i.test(url)) return { href: url, external: true };
+
   const [relativePath, query = ""] = pathWithQuery.split("?", 2);
   let decodedPath = relativePath;
   try { decodedPath = decodeURIComponent(relativePath); } catch {}
@@ -291,13 +317,31 @@ async function loadTree() {
   const data = await api("/api/tree");
   state.tree = data;
   state.documentIndex.clear();
+  state.documentUrlIndex.clear();
+  let homeDocument = null;
+  let gitLabOrigin = "";
   const indexGroup = (group) => {
-    group.projects.forEach((project) => project.documents.forEach((doc) => {
-      state.documentIndex.set(`${project.path}:${doc.path}`, doc);
-    }));
+    group.projects.forEach((project) => {
+      project.documents.forEach((doc) => {
+        state.documentIndex.set(`${project.path}:${doc.path}`, doc);
+        const documentUrl = normalizedDocumentUrl(doc.webUrl);
+        if (documentUrl) {
+          state.documentUrlIndex.set(documentUrl, doc);
+          if (!gitLabOrigin) gitLabOrigin = new URL(doc.webUrl).origin;
+        }
+        if (doc.id === data.homeDocumentId) homeDocument = doc;
+      });
+      const projectReadme = project.documents.find((doc) => !doc.path.includes("/") && /^readme\./i.test(doc.path));
+      const projectUrl = normalizedDocumentUrl(project.webUrl);
+      if (projectReadme && projectUrl) state.documentUrlIndex.set(projectUrl, projectReadme);
+    });
     group.groups.forEach(indexGroup);
   };
   indexGroup(data.root);
+  if (homeDocument && gitLabOrigin) {
+    const groupUrl = normalizedDocumentUrl(`/${data.root.path}`, gitLabOrigin);
+    state.documentUrlIndex.set(groupUrl, homeDocument);
+  }
   $("#tree").innerHTML = groupHtml(data.root, true);
   $("#stats").innerHTML = `${data.source === "demo" ? '<span class="demo-badge">DEMO MODE</span><br>' : ""}${data.stats.groups} グループ ・ ${data.stats.projects} リポジトリ<br>${data.stats.documents} 文書をインデックス`;
 }
