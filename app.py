@@ -11,11 +11,14 @@ import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
-from dataclasses import dataclass
-from http import HTTPStatus
-from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+import uvicorn
+from fastapi import FastAPI, Query, Request
+from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 ROOT = Path(__file__).resolve().parent
 STATIC_DIR = ROOT / "static"
@@ -49,11 +52,17 @@ class GitLabError(RuntimeError):
     pass
 
 
+def configured_link_branch() -> str:
+    value = os.getenv("GITLAB_LINK_BRANCH", "main").strip().lower()
+    return value if value in {"main", "draft"} else "main"
+
+
 @dataclass(frozen=True)
 class Settings:
     gitlab_url: str = os.getenv("GITLAB_URL", "").rstrip("/")
     token: str = os.getenv("GITLAB_TOKEN", "")
     group: str = os.getenv("GITLAB_GROUP", "")
+    link_branch: str = field(default_factory=configured_link_branch)
     extensions: tuple[str, ...] = tuple(
         x.strip().lower()
         for x in os.getenv("DOC_EXTENSIONS", ".md,.mdx,.txt,.rst,.adoc").split(",")
@@ -261,6 +270,7 @@ class DocumentStore:
                     "content": content,
                     "text": plain_text(content),
                     "webUrl": f"{project['web_url']}/-/blob/{urllib.parse.quote(branch)}/{urllib.parse.quote(path)}",
+                    "linkBranch": self.settings.link_branch,
                     "updatedAt": project.get("last_activity_at"),
                 }
                 docs[doc_id] = doc
@@ -327,7 +337,7 @@ class DocumentStore:
         ]
         docs, projects = {}, []
         for index, (doc_id, title, path, project, group_path, content) in enumerate(samples):
-            doc = {"id": doc_id, "title": title, "path": path, "project": project, "projectPath": f"{group_path}/{project}", "groupPath": group_path, "content": content, "text": plain_text(content), "webUrl": "", "updatedAt": None}
+            doc = {"id": doc_id, "title": title, "path": path, "project": project, "projectPath": f"{group_path}/{project}", "groupPath": group_path, "content": content, "text": plain_text(content), "webUrl": "", "linkBranch": self.settings.link_branch, "updatedAt": None}
             docs[doc_id] = doc
             summary = self._doc_summary(doc)
             projects.append({"id": 100 + index, "name": project, "path": doc["projectPath"], "groupPath": group_path, "webUrl": "", "documents": [summary], "documentTree": build_document_tree([summary])})
@@ -369,66 +379,67 @@ SETTINGS = Settings()
 STORE = DocumentStore(SETTINGS)
 
 
-class Handler(SimpleHTTPRequestHandler):
-    def translate_path(self, path: str) -> str:
-        relative = urllib.parse.urlparse(path).path.lstrip("/") or "index.html"
-        return str(STATIC_DIR / relative)
+app = FastAPI(title="GitLab Docs Navigator")
 
-    def _json(self, payload: Any, status: HTTPStatus = HTTPStatus.OK) -> None:
-        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-        self.send_response(status)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "no-store")
-        self.end_headers()
-        self.wfile.write(body)
 
-    def end_headers(self) -> None:
-        if not urllib.parse.urlparse(self.path).path.startswith("/api/"):
-            self.send_header("Cache-Control", "no-cache")
-        super().end_headers()
+@app.middleware("http")
+async def cache_control(request: Request, call_next: Any) -> Any:
+    response = await call_next(request)
+    response.headers["Cache-Control"] = "no-store" if request.url.path.startswith("/api/") else "no-cache"
+    return response
 
-    def do_GET(self) -> None:
-        parsed = urllib.parse.urlparse(self.path)
-        try:
-            if parsed.path == "/api/health":
-                self._json({"ok": True, "configured": SETTINGS.configured})
-            elif parsed.path == "/api/tree":
-                self._json(STORE.tree())
-            elif parsed.path == "/api/doc":
-                doc_id = urllib.parse.parse_qs(parsed.query).get("id", [""])[0]
-                doc = STORE.document(doc_id)
-                self._json(doc if doc else {"error": "文書が見つかりません"}, HTTPStatus.OK if doc else HTTPStatus.NOT_FOUND)
-            elif parsed.path == "/api/search":
-                query = urllib.parse.parse_qs(parsed.query).get("q", [""])[0].strip()
-                self._json({"query": query, "results": STORE.search(query)})
-            elif parsed.path.startswith("/api/"):
-                self._json({"error": "APIが見つかりません"}, HTTPStatus.NOT_FOUND)
-            else:
-                super().do_GET()
-        except GitLabError as exc:
-            self._json({"error": str(exc)}, HTTPStatus.BAD_GATEWAY)
-        except Exception:
-            self._json({"error": "サーバー内部でエラーが発生しました"}, HTTPStatus.INTERNAL_SERVER_ERROR)
 
-    def do_POST(self) -> None:
-        if urllib.parse.urlparse(self.path).path != "/api/refresh":
-            self._json({"error": "APIが見つかりません"}, HTTPStatus.NOT_FOUND)
-            return
-        try:
-            self._json(STORE.load(force=True) and STORE.tree())
-        except GitLabError as exc:
-            self._json({"error": str(exc)}, HTTPStatus.BAD_GATEWAY)
+@app.exception_handler(GitLabError)
+async def gitlab_error_handler(_request: Request, exc: GitLabError) -> JSONResponse:
+    return JSONResponse({"error": str(exc)}, status_code=502)
 
-    def log_message(self, fmt: str, *args: Any) -> None:
-        print(f"[web] {self.address_string()} {fmt % args}")
+
+@app.exception_handler(Exception)
+async def internal_error_handler(_request: Request, _exc: Exception) -> JSONResponse:
+    return JSONResponse({"error": "サーバー内部でエラーが発生しました"}, status_code=500)
+
+
+@app.get("/api/health")
+def health() -> dict[str, bool]:
+    return {"ok": True, "configured": SETTINGS.configured}
+
+
+@app.get("/api/tree")
+def tree() -> dict[str, Any]:
+    return STORE.tree()
+
+
+@app.get("/api/doc")
+def document(id: str = Query(default="")) -> Any:
+    doc = STORE.document(id)
+    return doc if doc else JSONResponse({"error": "文書が見つかりません"}, status_code=404)
+
+
+@app.get("/api/search")
+def search(q: str = Query(default="")) -> dict[str, Any]:
+    query = q.strip()
+    return {"query": query, "results": STORE.search(query)}
+
+
+@app.post("/api/refresh")
+def refresh() -> dict[str, Any]:
+    STORE.load(force=True)
+    return STORE.tree()
+
+
+@app.api_route("/api/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
+def api_not_found(path: str) -> JSONResponse:
+    return JSONResponse({"error": "APIが見つかりません"}, status_code=404)
+
+
+app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="static")
 
 
 def main() -> None:
     host = os.getenv("HOST", "127.0.0.1")
     port = int(os.getenv("PORT", "8000"))
     print(f"GitLab Docs Navigator: http://{host}:{port} ({'GitLab' if SETTINGS.configured else 'demo'} mode)")
-    ThreadingHTTPServer((host, port), Handler).serve_forever()
+    uvicorn.run(app, host=host, port=port)
 
 
 if __name__ == "__main__":

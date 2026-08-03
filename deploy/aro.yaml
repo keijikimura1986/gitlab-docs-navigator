@@ -7,6 +7,7 @@ metadata:
 data:
   GITLAB_URL: "https://gitlab.com"
   GITLAB_GROUP: "test5830230"
+  GITLAB_LINK_BRANCH: "main"
   HOST: "0.0.0.0"
   PORT: "8080"
   CACHE_TTL_SECONDS: "300"

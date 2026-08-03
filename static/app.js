@@ -153,6 +153,16 @@ function resolveImageUrl(url, doc) {
   return `${projectUrl}/-/raw/${branch}/${encodedPath}`;
 }
 
+function gitLabBranchUrl(url, branch) {
+  const marker = "/-/blob/";
+  const markerAt = url.indexOf(marker);
+  if (markerAt < 0) return url;
+  const afterMarker = url.slice(markerAt + marker.length);
+  const pathAt = afterMarker.indexOf("/");
+  if (pathAt < 0) return url;
+  return `${url.slice(0, markerAt + marker.length)}${encodeURIComponent(branch)}${afterMarker.slice(pathAt)}`;
+}
+
 function inlineMarkdown(value, doc) {
   const tokens = [];
   const token = (html) => {
@@ -416,7 +426,7 @@ async function openDoc(id, push = true, highlightQuery = "") {
     $("#docContent").innerHTML = markdown(doc.content, doc);
     highlightDocument(highlightQuery);
     $("#gitlabLink").classList.toggle("hidden", !doc.webUrl);
-    $("#gitlabLink").href = doc.webUrl || "#";
+    $("#gitlabLink").href = doc.webUrl ? gitLabBranchUrl(doc.webUrl, doc.linkBranch || "main") : "#";
     document.querySelectorAll(".tree-doc").forEach((node) => node.classList.toggle("active", node.dataset.docId === id));
     showView("#docView");
     if (push) {

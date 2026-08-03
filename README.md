@@ -1,6 +1,6 @@
 # GitLab Docs Navigator
 
-GitLab のグループ、サブグループ、リポジトリに分散した Markdown 文書を収集し、階層表示と全文検索を行う軽量 Web アプリです。外部パッケージなしで動作します。
+GitLab のグループ、サブグループ、リポジトリに分散した Markdown 文書を収集し、階層表示と全文検索を行う FastAPI 製 Web アプリです。
 
 ## 起動
 
@@ -9,6 +9,7 @@ GitLab のグループ、サブグループ、リポジトリに分散した Mar
 ```powershell
 Copy-Item .env.example .env
 # .env の GITLAB_URL、GITLAB_GROUP、必要に応じて GITLAB_TOKEN を編集
+python -m pip install -r requirements.txt
 python app.py
 ```
 
@@ -21,6 +22,7 @@ python app.py
 | `GITLAB_URL` | なし | GitLab の URL |
 | `GITLAB_TOKEN` | なし | 任意。非公開文書では `read_api` / `read_repository` 権限のアクセストークン |
 | `GITLAB_GROUP` | なし | ルートグループの ID またはフルパス |
+| `GITLAB_LINK_BRANCH` | `main` | 「GitLabで開く」ボタンのブランチ。`main` または `draft` |
 | `DOC_EXTENSIONS` | `.md,.mdx,.txt,.rst,.adoc` | 収集対象の拡張子 |
 | `DOC_MAX_BYTES` | `1000000` | 文書 1 ファイルの最大サイズ |
 | `CACHE_TTL_SECONDS` | `300` | GitLab データのキャッシュ秒数 |
@@ -36,9 +38,12 @@ python app.py
 - `POST /api/refresh` — GitLab から強制再取得
 - `GET /api/health` — 稼働状態
 
+FastAPI が生成する API ドキュメントは <http://localhost:8000/docs> で確認できます。
+
 ## テスト
 
 ```powershell
+python -m pip install -r requirements-dev.txt
 python -m unittest discover -s tests
 ```
 

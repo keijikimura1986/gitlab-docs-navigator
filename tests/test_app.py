@@ -3,6 +3,7 @@ import os
 import tempfile
 from pathlib import Path
 
+from fastapi.testclient import TestClient
 from unittest.mock import patch
 
 from app import (
@@ -15,6 +16,7 @@ from app import (
     load_dotenv,
     normalize,
     plain_text,
+    app,
 )
 
 
@@ -32,6 +34,32 @@ class DotenvTests(unittest.TestCase):
                 load_dotenv(path)
                 self.assertEqual(os.environ["GITLAB_URL"], "https://override.example.com")
                 self.assertEqual(os.environ["GITLAB_GROUP"], "docs/team")
+
+
+class ApiTests(unittest.TestCase):
+    def setUp(self):
+        self.client = TestClient(app)
+
+    def test_health(self):
+        response = self.client.get("/api/health")
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["ok"])
+        self.assertEqual(response.headers["cache-control"], "no-store")
+
+    def test_missing_document(self):
+        response = self.client.get("/api/doc", params={"id": "missing"})
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json(), {"error": "文書が見つかりません"})
+
+    def test_unknown_api(self):
+        response = self.client.get("/api/unknown")
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json(), {"error": "APIが見つかりません"})
+
+    def test_fastapi_docs_are_available(self):
+        response = self.client.get("/docs")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("swagger-ui", response.text)
 
 
 class TextTests(unittest.TestCase):
@@ -74,13 +102,17 @@ class TextTests(unittest.TestCase):
 
 class StoreTests(unittest.TestCase):
     def setUp(self):
-        self.store = DocumentStore(Settings(gitlab_url="", token="", group=""))
+        self.store = DocumentStore(Settings(gitlab_url="", token="", group="", link_branch="main"))
 
     def test_demo_tree_is_hierarchical(self):
         tree = self.store.tree()
         self.assertEqual(tree["source"], "demo")
         self.assertGreaterEqual(tree["stats"]["groups"], 3)
         self.assertEqual(tree["stats"]["documents"], 3)
+
+    def test_document_includes_gitlab_link_branch(self):
+        document = self.store.document("100:README.md")
+        self.assertEqual(document["linkBranch"], "main")
 
     def test_search_requires_all_terms(self):
         results = self.store.search("デプロイ 手順")
@@ -118,6 +150,14 @@ class StoreTests(unittest.TestCase):
 
 
 class SettingsTests(unittest.TestCase):
+    def test_link_branch_defaults_to_main(self):
+        with patch.dict(os.environ, {"GITLAB_LINK_BRANCH": "invalid"}):
+            self.assertEqual(Settings(gitlab_url="", token="", group="").link_branch, "main")
+
+    def test_link_branch_can_be_draft(self):
+        with patch.dict(os.environ, {"GITLAB_LINK_BRANCH": "draft"}):
+            self.assertEqual(Settings(gitlab_url="", token="", group="").link_branch, "draft")
+
     def test_public_gitlab_does_not_require_token(self):
         settings = Settings(
             gitlab_url="https://gitlab.com",
