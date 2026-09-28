@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="GitLabの階層化された文書を横断して閲覧・検索">
   <title>GitLab Docs Navigator</title>
-  <link rel="stylesheet" href="/styles.css?v=4">
+  <link rel="stylesheet" href="/styles.css?v=5">
 </head>
 <body>
   <header class="topbar">
@@ -19,7 +19,10 @@
       <input id="searchInput" type="search" placeholder="文書を検索… 例: デプロイ 手順" autocomplete="off">
       <kbd>⌘ K</kbd>
     </div>
-    <button class="refresh-button" id="refreshButton" title="GitLabから再取得">↻ <span>再取得</span></button>
+    <div class="topbar-actions">
+      <a id="issueButton" class="issue-button hidden" target="_blank" rel="noopener noreferrer" title="このリポジトリにIssueを作成">＋ <span>Issueを作成</span></a>
+      <button class="refresh-button" id="refreshButton" title="GitLabから再取得">↻ <span>再取得</span></button>
+    </div>
   </header>
 
   <div class="app-shell">
@@ -76,6 +79,6 @@
     <div class="overlay" id="overlay"></div>
   </div>
   <div class="toast hidden" id="toast" role="status"></div>
-  <script src="/app.js?v=11"></script>
+  <script src="/app.js?v=12"></script>
 </body>
 </html>

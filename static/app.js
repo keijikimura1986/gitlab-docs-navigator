@@ -55,6 +55,7 @@ initializeSidebarResize();
 
 function showView(selector) {
   views.forEach((id) => $(id).classList.toggle("hidden", id !== selector));
+  if (selector !== "#docView") $("#issueButton").classList.add("hidden");
 }
 
 function escapeHtml(value = "") {
@@ -161,6 +162,12 @@ function gitLabBranchUrl(url, branch) {
   const pathAt = afterMarker.indexOf("/");
   if (pathAt < 0) return url;
   return `${url.slice(0, markerAt + marker.length)}${encodeURIComponent(branch)}${afterMarker.slice(pathAt)}`;
+}
+
+function gitLabNewIssueUrl(documentUrl) {
+  const markerAt = documentUrl.indexOf("/-/blob/");
+  if (markerAt < 0) return "";
+  return `${documentUrl.slice(0, markerAt)}/-/issues/new`;
 }
 
 function inlineMarkdown(value, doc) {
@@ -427,6 +434,9 @@ async function openDoc(id, push = true, highlightQuery = "") {
     highlightDocument(highlightQuery);
     $("#gitlabLink").classList.toggle("hidden", !doc.webUrl);
     $("#gitlabLink").href = doc.webUrl ? gitLabBranchUrl(doc.webUrl, doc.linkBranch || "main") : "#";
+    const issueUrl = doc.webUrl ? gitLabNewIssueUrl(doc.webUrl) : "";
+    $("#issueButton").classList.toggle("hidden", !issueUrl);
+    $("#issueButton").href = issueUrl || "#";
     document.querySelectorAll(".tree-doc").forEach((node) => node.classList.toggle("active", node.dataset.docId === id));
     showView("#docView");
     if (push) {
