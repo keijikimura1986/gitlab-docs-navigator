@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import re
 import threading
@@ -73,6 +74,7 @@ class Settings:
     )
     max_bytes: int = int(os.getenv("DOC_MAX_BYTES", "1000000"))
     cache_ttl: int = int(os.getenv("CACHE_TTL_SECONDS", "300"))
+    cache_dir: Path = field(default_factory=lambda: Path(os.getenv("CACHE_DIR", str(ROOT / ".cache"))))
 
     @property
     def configured(self) -> bool:
@@ -224,11 +226,68 @@ class DocumentStore:
                 and time.time() - self._loaded_at < self.settings.cache_ttl
             ):
                 return self._data
+            if not force and self.settings.configured:
+                cached = self._load_disk_cache(requested_branch)
+                if cached:
+                    self._data, self._loaded_at = cached
+                    self._branch = requested_branch
+                    return self._data
             self._data = self._fetch_gitlab(requested_branch) if self.settings.configured else self._demo(requested_branch)
             self._data["fetchedAt"] = datetime.now(timezone.utc).isoformat()
             self._branch = requested_branch
             self._loaded_at = time.time()
+            if self.settings.configured:
+                self._save_disk_cache(requested_branch, self._data)
             return self._data
+
+    def _cache_signature(self) -> str:
+        value = json.dumps(
+            {
+                "url": self.settings.gitlab_url,
+                "group": self.settings.group,
+                "extensions": self.settings.extensions,
+                "maxBytes": self.settings.max_bytes,
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+        return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+    def _cache_file(self, branch: str) -> Path:
+        return self.settings.cache_dir / f"documents-{branch}.json"
+
+    def _load_disk_cache(self, branch: str) -> tuple[dict[str, Any], float] | None:
+        path = self._cache_file(branch)
+        try:
+            cached = json.loads(path.read_text(encoding="utf-8"))
+            saved_at = float(cached["savedAt"])
+            if cached["signature"] != self._cache_signature():
+                return None
+            if time.time() - saved_at >= self.settings.cache_ttl:
+                return None
+            return cached["data"], saved_at
+        except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError):
+            return None
+
+    def _save_disk_cache(self, branch: str, data: dict[str, Any]) -> None:
+        path = self._cache_file(branch)
+        temporary = path.with_suffix(".tmp")
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            temporary.write_text(
+                json.dumps(
+                    {"signature": self._cache_signature(), "savedAt": self._loaded_at, "data": data},
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            temporary.replace(path)
+        except OSError:
+            # A read-only filesystem should not prevent GitLab data from loading.
+            try:
+                temporary.unlink(missing_ok=True)
+            except OSError:
+                pass
 
     def _fetch_gitlab(self, branch: str) -> dict[str, Any]:
         client = GitLabClient(self.settings)
@@ -280,6 +339,7 @@ class DocumentStore:
                     "projectPath": project["path_with_namespace"],
                     "groupPath": project["namespace"]["full_path"],
                     "content": content,
+                    "renderHash": hashlib.sha256(f"{branch}\0{project['path_with_namespace']}\0{content}".encode("utf-8")).hexdigest(),
                     "text": plain_text(content),
                     "webUrl": f"{project['web_url']}/-/blob/{urllib.parse.quote(branch)}/{urllib.parse.quote(path)}",
                     "linkBranch": branch,
@@ -351,7 +411,7 @@ class DocumentStore:
         ]
         docs, projects = {}, []
         for index, (doc_id, title, path, project, group_path, content) in enumerate(samples):
-            doc = {"id": doc_id, "title": title, "path": path, "project": project, "projectPath": f"{group_path}/{project}", "groupPath": group_path, "content": content, "text": plain_text(content), "webUrl": "", "linkBranch": branch, "updatedAt": None}
+            doc = {"id": doc_id, "title": title, "path": path, "project": project, "projectPath": f"{group_path}/{project}", "groupPath": group_path, "content": content, "renderHash": hashlib.sha256(f"{branch}\0{group_path}/{project}\0{content}".encode("utf-8")).hexdigest(), "text": plain_text(content), "webUrl": "", "linkBranch": branch, "updatedAt": None}
             docs[doc_id] = doc
             summary = self._doc_summary(doc)
             projects.append({"id": 100 + index, "name": project, "path": doc["projectPath"], "groupPath": group_path, "webUrl": "", "documents": [summary], "documentTree": build_document_tree([summary])})

@@ -4,7 +4,7 @@ import tempfile
 from pathlib import Path
 
 from fastapi.testclient import TestClient
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from app import (
     DocumentStore,
@@ -127,6 +127,35 @@ class StoreTests(unittest.TestCase):
         tree = self.store.load(force=True, branch="draft")
         self.assertEqual(tree["branch"], "draft")
         self.assertEqual(self.store.document("100:README.md")["linkBranch"], "draft")
+        self.assertTrue(self.store.document("100:README.md")["renderHash"])
+
+    def test_gitlab_data_is_reused_from_disk_cache(self):
+        with tempfile.TemporaryDirectory() as directory:
+            settings = Settings(
+                gitlab_url="https://gitlab.example.com",
+                token="",
+                group="docs",
+                cache_ttl=300,
+                cache_dir=Path(directory),
+            )
+            data = {
+                "source": "gitlab",
+                "branch": "main",
+                "root": {},
+                "homeDocumentId": None,
+                "documents": {},
+                "stats": {"groups": 0, "projects": 0, "documents": 0},
+            }
+            first = DocumentStore(settings)
+            first._fetch_gitlab = Mock(return_value=data)
+            fetched = first.load(force=True, branch="main")
+
+            restarted = DocumentStore(settings)
+            restarted._fetch_gitlab = Mock(side_effect=AssertionError("GitLab must not be called"))
+            cached = restarted.load(branch="main")
+
+            self.assertEqual(cached["fetchedAt"], fetched["fetchedAt"])
+            restarted._fetch_gitlab.assert_not_called()
 
     def test_search_requires_all_terms(self):
         results = self.store.search("デプロイ 手順")

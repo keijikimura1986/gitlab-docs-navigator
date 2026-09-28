@@ -293,6 +293,26 @@ function markdown(source, doc) {
   return blocks.join("\n");
 }
 
+function renderedDocumentHtml(doc) {
+  const key = doc.renderHash ? `docsNavigator.renderedHtml.${doc.renderHash}` : "";
+  if (key) {
+    try {
+      const cached = localStorage.getItem(key);
+      if (cached !== null) return cached;
+    } catch {}
+  }
+
+  const html = markdown(doc.content, doc);
+  if (key) {
+    try {
+      localStorage.setItem(key, html);
+    } catch {
+      // Rendering still succeeds when storage is unavailable or full.
+    }
+  }
+  return html;
+}
+
 async function api(path, options) {
   const response = await fetch(path, options);
   const data = await response.json();
@@ -438,7 +458,7 @@ async function openDoc(id, push = true, highlightQuery = "") {
     $("#docTitle").textContent = doc.title;
     $("#filePath").textContent = doc.path;
     $("#breadcrumbs").innerHTML = [...doc.groupPath.split("/"), doc.project].map((x) => `<span>${escapeHtml(x)}</span>`).join("");
-    $("#docContent").innerHTML = markdown(doc.content, doc);
+    $("#docContent").innerHTML = renderedDocumentHtml(doc);
     highlightDocument(highlightQuery);
     $("#gitlabLink").classList.toggle("hidden", !doc.webUrl);
     $("#gitlabLink").href = doc.webUrl ? gitLabBranchUrl(doc.webUrl, doc.linkBranch || "main") : "#";
