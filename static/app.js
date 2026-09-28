@@ -360,7 +360,11 @@ async function loadTree() {
     state.documentUrlIndex.set(groupUrl, homeDocument);
   }
   $("#tree").innerHTML = groupHtml(data.root, true);
-  $("#stats").innerHTML = `${data.source === "demo" ? '<span class="demo-badge">DEMO MODE</span><br>' : ""}${data.stats.groups} グループ ・ ${data.stats.projects} リポジトリ<br>${data.stats.documents} 文書をインデックス`;
+  const fetchedAt = new Intl.DateTimeFormat("ja-JP", {
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit"
+  }).format(new Date(data.fetchedAt));
+  $("#stats").innerHTML = `${data.source === "demo" ? '<span class="demo-badge">DEMO MODE</span><br>' : ""}${data.stats.groups} グループ ・ ${data.stats.projects} リポジトリ<br>${data.stats.documents} 文書をインデックス<br><span class="fetched-at">取得日時: ${escapeHtml(fetchedAt)}</span>`;
   const nextBranch = data.branch === "draft" ? "main" : "draft";
   $("#branchButton span").textContent = `${nextBranch}を取得`;
   $("#branchButton").title = `${nextBranch}ブランチの文書を取得`;

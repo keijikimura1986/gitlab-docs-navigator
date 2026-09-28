@@ -12,6 +12,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -224,6 +225,7 @@ class DocumentStore:
             ):
                 return self._data
             self._data = self._fetch_gitlab(requested_branch) if self.settings.configured else self._demo(requested_branch)
+            self._data["fetchedAt"] = datetime.now(timezone.utc).isoformat()
             self._branch = requested_branch
             self._loaded_at = time.time()
             return self._data
@@ -363,7 +365,7 @@ class DocumentStore:
 
     def tree(self) -> dict[str, Any]:
         data = self.load()
-        return {k: data[k] for k in ("source", "branch", "root", "homeDocumentId", "stats")}
+        return {k: data[k] for k in ("source", "branch", "fetchedAt", "root", "homeDocumentId", "stats")}
 
     def document(self, doc_id: str) -> dict[str, Any] | None:
         return self.load()["documents"].get(doc_id)

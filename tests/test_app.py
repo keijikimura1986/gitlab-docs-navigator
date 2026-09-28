@@ -115,6 +115,7 @@ class StoreTests(unittest.TestCase):
         tree = self.store.tree()
         self.assertEqual(tree["source"], "demo")
         self.assertEqual(tree["branch"], "main")
+        self.assertTrue(tree["fetchedAt"].endswith("+00:00"))
         self.assertGreaterEqual(tree["stats"]["groups"], 3)
         self.assertEqual(tree["stats"]["documents"], 3)
 

@@ -55,6 +55,7 @@ body.resizing-sidebar { cursor: col-resize; user-select: none; }
 .tree-doc { width: 100%; border: 0; background: none; text-align: left; color: #5d6863; }
 .tree-doc.active { color: var(--accent); background: var(--accent-soft); font-weight: 650; }
 .sidebar-stats { padding: 15px 20px; border-top: 1px solid var(--line); color: var(--muted); font-size: 11px; line-height: 1.7; }
+.fetched-at { color: #87918c; }
 .demo-badge { display: inline-block; padding: 2px 6px; margin-bottom: 5px; border-radius: 4px; background: #fff0e8; color: #a94823; font-weight: 700; }
 .main { min-width: 0; }
 .welcome { max-width: 950px; margin: 0 auto; padding: 11vh 60px 80px; }
