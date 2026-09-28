@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 from app import (
     DocumentStore,
+    GitLabError,
     GitLabClient,
     Settings,
     build_document_tree,
@@ -100,6 +101,12 @@ class TextTests(unittest.TestCase):
         self.assertEqual(guide["children"][1]["path"], "guide/alpha.md")
 
 
+class ErrorTests(unittest.TestCase):
+    def test_gitlab_error_preserves_status_code(self):
+        error = GitLabError("GitLab API 404", status_code=404)
+        self.assertEqual(error.status_code, 404)
+
+
 class StoreTests(unittest.TestCase):
     def setUp(self):
         self.store = DocumentStore(Settings(gitlab_url="", token="", group="", link_branch="main"))
@@ -107,12 +114,18 @@ class StoreTests(unittest.TestCase):
     def test_demo_tree_is_hierarchical(self):
         tree = self.store.tree()
         self.assertEqual(tree["source"], "demo")
+        self.assertEqual(tree["branch"], "main")
         self.assertGreaterEqual(tree["stats"]["groups"], 3)
         self.assertEqual(tree["stats"]["documents"], 3)
 
     def test_document_includes_gitlab_link_branch(self):
         document = self.store.document("100:README.md")
         self.assertEqual(document["linkBranch"], "main")
+
+    def test_refresh_can_switch_to_draft_branch(self):
+        tree = self.store.load(force=True, branch="draft")
+        self.assertEqual(tree["branch"], "draft")
+        self.assertEqual(self.store.document("100:README.md")["linkBranch"], "draft")
 
     def test_search_requires_all_terms(self):
         results = self.store.search("デプロイ 手順")

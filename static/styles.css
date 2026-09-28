@@ -25,10 +25,11 @@ button { color: inherit; }
 .search-icon { position: absolute; left: 15px; top: 8px; font-size: 24px; color: var(--muted); }
 kbd { position: absolute; right: 11px; top: 10px; padding: 3px 7px; border: 1px solid #d2d9d4; border-radius: 5px; color: var(--muted); background: white; font-size: 11px; }
 .topbar-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; }
-.refresh-button, .mobile-menu { border: 0; background: none; cursor: pointer; }
-.refresh-button { padding: 9px 12px; border: 1px solid var(--line); border-radius: 8px; }
-.refresh-button:hover { background: var(--accent-soft); color: var(--accent); }
-.refresh-button.loading { animation: pulse 1s infinite; pointer-events: none; }
+.refresh-button, .branch-button, .mobile-menu { border: 0; background: none; cursor: pointer; }
+.refresh-button, .branch-button { padding: 9px 12px; border: 1px solid var(--line); border-radius: 8px; }
+.refresh-button:hover, .branch-button:hover { background: var(--accent-soft); color: var(--accent); }
+.refresh-button.loading, .branch-button.loading { animation: pulse 1s infinite; pointer-events: none; }
+.branch-button { border-color: #b9cec4; color: var(--accent); font-size: 13px; font-weight: 650; }
 .issue-button { white-space: nowrap; padding: 9px 12px; border-radius: 8px; background: var(--accent); color: white; text-decoration: none; font-size: 13px; font-weight: 650; }
 .issue-button:hover { background: #1f6248; }
 .mobile-menu { display: none; font-size: 22px; }
@@ -121,6 +122,7 @@ mark { padding: 1px 2px; background: #ffe49a; color: inherit; border-radius: 2px
   .mobile-menu { display: block; }
   .brand { min-width: auto; }
   .brand > span:last-child, .issue-button span, .refresh-button span, kbd { display: none; }
+  .branch-button { padding-inline: 9px; }
   .search-wrap input { padding-right: 12px; }
   .app-shell { display: block; }
   .sidebar { position: fixed; z-index: 30; top: 64px; left: 0; width: 300px; height: calc(100vh - 64px); transform: translateX(-100%); transition: .2s; }

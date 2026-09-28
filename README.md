@@ -28,14 +28,14 @@ python app.py
 | `CACHE_TTL_SECONDS` | `300` | GitLab データのキャッシュ秒数 |
 | `PORT` | `8000` | 待受ポート |
 
-公開グループと公開リポジトリだけを扱う場合、トークンは不要です。指定したトークンはサーバー内だけで使われ、ブラウザには送信されません。画面右上の「GitLabから再取得」でキャッシュを更新できます。
+公開グループと公開リポジトリだけを扱う場合、トークンは不要です。指定したトークンはサーバー内だけで使われ、ブラウザには送信されません。画面右上で `main` / `draft` ブランチを切り替え、「GitLabから再取得」で表示中のブランチのキャッシュを更新できます。
 
 ## API
 
 - `GET /api/tree` — グループ、プロジェクト、文書の階層
 - `GET /api/doc?id=...` — 文書本文
 - `GET /api/search?q=...` — タイトル、パス、本文を検索
-- `POST /api/refresh` — GitLab から強制再取得
+- `POST /api/refresh?branch=main|draft` — 指定ブランチを GitLab から強制再取得
 - `GET /api/health` — 稼働状態
 
 FastAPI が生成する API ドキュメントは <http://localhost:8000/docs> で確認できます。

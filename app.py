@@ -49,7 +49,9 @@ load_dotenv()
 
 
 class GitLabError(RuntimeError):
-    pass
+    def __init__(self, message: str, status_code: int | None = None):
+        super().__init__(message)
+        self.status_code = status_code
 
 
 def configured_link_branch() -> str:
@@ -94,7 +96,7 @@ class GitLabClient:
                 return json.loads(response.read().decode("utf-8"))
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="replace")[:300]
-            raise GitLabError(f"GitLab API {exc.code}: {detail}") from exc
+            raise GitLabError(f"GitLab API {exc.code}: {detail}", status_code=exc.code) from exc
         except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
             raise GitLabError(f"GitLab APIへの接続に失敗しました: {exc}") from exc
 
@@ -209,20 +211,24 @@ class DocumentStore:
         self._lock = threading.Lock()
         self._loaded_at = 0.0
         self._data: dict[str, Any] | None = None
+        self._branch = "main"
 
-    def load(self, force: bool = False) -> dict[str, Any]:
+    def load(self, force: bool = False, branch: str | None = None) -> dict[str, Any]:
         with self._lock:
+            requested_branch = branch or self._branch
             if (
                 not force
                 and self._data is not None
+                and requested_branch == self._branch
                 and time.time() - self._loaded_at < self.settings.cache_ttl
             ):
                 return self._data
-            self._data = self._fetch_gitlab() if self.settings.configured else self._demo()
+            self._data = self._fetch_gitlab(requested_branch) if self.settings.configured else self._demo(requested_branch)
+            self._branch = requested_branch
             self._loaded_at = time.time()
             return self._data
 
-    def _fetch_gitlab(self) -> dict[str, Any]:
+    def _fetch_gitlab(self, branch: str) -> dict[str, Any]:
         client = GitLabClient(self.settings)
         root = client.get(f"groups/{urllib.parse.quote(self.settings.group, safe='')}")
         groups = client.pages(f"groups/{root['id']}/descendant_groups")
@@ -237,13 +243,17 @@ class DocumentStore:
         docs: dict[str, dict[str, Any]] = {}
         project_nodes: list[dict[str, Any]] = []
         for project in sorted(projects.values(), key=lambda x: x["path_with_namespace"].lower()):
-            branch = project.get("default_branch")
-            if not branch:
-                continue
-            files = client.pages(
-                f"projects/{project['id']}/repository/tree",
-                {"recursive": "true", "ref": branch},
-            )
+            try:
+                files = client.pages(
+                    f"projects/{project['id']}/repository/tree",
+                    {"recursive": "true", "ref": branch},
+                )
+            except GitLabError as exc:
+                # GitLab returns 404 Tree Not Found when this repository does not
+                # have the requested branch. Other repositories can still be used.
+                if exc.status_code == 404:
+                    continue
+                raise
             project_docs = []
             for item in files:
                 path = item.get("path", "")
@@ -270,7 +280,7 @@ class DocumentStore:
                     "content": content,
                     "text": plain_text(content),
                     "webUrl": f"{project['web_url']}/-/blob/{urllib.parse.quote(branch)}/{urllib.parse.quote(path)}",
-                    "linkBranch": self.settings.link_branch,
+                    "linkBranch": branch,
                     "updatedAt": project.get("last_activity_at"),
                 }
                 docs[doc_id] = doc
@@ -286,7 +296,7 @@ class DocumentStore:
                     "documentTree": build_document_tree(project_docs),
                 }
             )
-        return self._assemble(root["full_path"], root["name"], groups_by_id.values(), project_nodes, docs, "gitlab")
+        return self._assemble(root["full_path"], root["name"], groups_by_id.values(), project_nodes, docs, "gitlab", branch)
 
     @staticmethod
     def _doc_summary(doc: dict[str, Any]) -> dict[str, Any]:
@@ -300,6 +310,7 @@ class DocumentStore:
         projects: list[dict[str, Any]],
         docs: dict[str, dict[str, Any]],
         source: str,
+        branch: str,
     ) -> dict[str, Any]:
         nodes = {
             g["full_path"]: {
@@ -323,13 +334,14 @@ class DocumentStore:
                 nodes[project["groupPath"]]["projects"].append(project)
         return {
             "source": source,
+            "branch": branch,
             "root": nodes[root_path],
             "homeDocumentId": find_group_readme(root_path, projects),
             "documents": docs,
             "stats": {"groups": len(nodes), "projects": len(projects), "documents": len(docs)},
         }
 
-    def _demo(self) -> dict[str, Any]:
+    def _demo(self, branch: str = "main") -> dict[str, Any]:
         samples = [
             ("100:README.md", "はじめに", "README.md", "platform", "company/platform", "# はじめに\n\nこのポータルでは社内文書を横断して確認できます。\n\n## 使い方\n\n左のナビゲーションか検索を利用してください。"),
             ("101:guides/deploy.md", "デプロイ手順", "guides/deploy.md", "operations", "company/platform/operations", "# デプロイ手順\n\n1. テストを実行します。\n2. 承認後に本番環境へデプロイします。\n\n> 障害時はロールバック手順を確認してください。"),
@@ -337,7 +349,7 @@ class DocumentStore:
         ]
         docs, projects = {}, []
         for index, (doc_id, title, path, project, group_path, content) in enumerate(samples):
-            doc = {"id": doc_id, "title": title, "path": path, "project": project, "projectPath": f"{group_path}/{project}", "groupPath": group_path, "content": content, "text": plain_text(content), "webUrl": "", "linkBranch": self.settings.link_branch, "updatedAt": None}
+            doc = {"id": doc_id, "title": title, "path": path, "project": project, "projectPath": f"{group_path}/{project}", "groupPath": group_path, "content": content, "text": plain_text(content), "webUrl": "", "linkBranch": branch, "updatedAt": None}
             docs[doc_id] = doc
             summary = self._doc_summary(doc)
             projects.append({"id": 100 + index, "name": project, "path": doc["projectPath"], "groupPath": group_path, "webUrl": "", "documents": [summary], "documentTree": build_document_tree([summary])})
@@ -347,11 +359,11 @@ class DocumentStore:
             {"id": 3, "name": "Operations", "full_path": "company/platform/operations"},
             {"id": 4, "name": "Governance", "full_path": "company/governance"},
         ]
-        return self._assemble("company", "Company Docs", groups, projects, docs, "demo")
+        return self._assemble("company", "Company Docs", groups, projects, docs, "demo", branch)
 
     def tree(self) -> dict[str, Any]:
         data = self.load()
-        return {k: data[k] for k in ("source", "root", "homeDocumentId", "stats")}
+        return {k: data[k] for k in ("source", "branch", "root", "homeDocumentId", "stats")}
 
     def document(self, doc_id: str) -> dict[str, Any] | None:
         return self.load()["documents"].get(doc_id)
@@ -422,8 +434,8 @@ def search(q: str = Query(default="")) -> dict[str, Any]:
 
 
 @app.post("/api/refresh")
-def refresh() -> dict[str, Any]:
-    STORE.load(force=True)
+def refresh(branch: str = Query(default="main", pattern="^(main|draft)$")) -> dict[str, Any]:
+    STORE.load(force=True, branch=branch)
     return STORE.tree()
 
 

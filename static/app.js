@@ -361,6 +361,10 @@ async function loadTree() {
   }
   $("#tree").innerHTML = groupHtml(data.root, true);
   $("#stats").innerHTML = `${data.source === "demo" ? '<span class="demo-badge">DEMO MODE</span><br>' : ""}${data.stats.groups} グループ ・ ${data.stats.projects} リポジトリ<br>${data.stats.documents} 文書をインデックス`;
+  const nextBranch = data.branch === "draft" ? "main" : "draft";
+  $("#branchButton span").textContent = `${nextBranch}を取得`;
+  $("#branchButton").title = `${nextBranch}ブランチの文書を取得`;
+  $("#branchButton").dataset.branch = nextBranch;
 }
 
 function showHome() {
@@ -498,12 +502,22 @@ document.addEventListener("click", (event) => {
   const quick = event.target.closest("[data-query]");
   if (quick) { $("#searchInput").value = quick.dataset.query; search(quick.dataset.query); }
 });
-$("#refreshButton").addEventListener("click", async () => {
-  const button = $("#refreshButton");
+async function refreshBranch(branch, button) {
   button.classList.add("loading");
-  try { await api("/api/refresh", { method: "POST" }); await loadTree(); toast("文書インデックスを更新しました"); }
+  try {
+    await api(`/api/refresh?branch=${encodeURIComponent(branch)}`, { method: "POST" });
+    await loadTree();
+    route(false);
+    toast(`${branch}ブランチの文書を取得しました`);
+  }
   catch (error) { toast(error.message); }
   finally { button.classList.remove("loading"); }
+}
+$("#refreshButton").addEventListener("click", () => {
+  refreshBranch(state.tree?.branch || "main", $("#refreshButton"));
+});
+$("#branchButton").addEventListener("click", () => {
+  refreshBranch($("#branchButton").dataset.branch || "draft", $("#branchButton"));
 });
 $("#collapseAll").addEventListener("click", () => document.querySelectorAll("#tree details").forEach((node) => node.open = false));
 $("#menuButton").addEventListener("click", () => { $("#sidebar").classList.toggle("open"); $("#overlay").classList.toggle("open"); });
