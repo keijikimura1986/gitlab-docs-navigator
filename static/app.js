@@ -11,6 +11,7 @@ const views = ["#welcome", "#searchView", "#docView"];
 const SIDEBAR_DEFAULT_WIDTH = 292;
 const SIDEBAR_MIN_WIDTH = 220;
 const SIDEBAR_MAX_WIDTH = 520;
+const projectNameCollator = new Intl.Collator("ja", { numeric: true });
 
 function setSidebarWidth(width, persist = true) {
   const value = Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, Math.round(width)));
@@ -92,10 +93,29 @@ function normalizedDocumentUrl(url, base) {
   }
 }
 
+function localFileUrl(path) {
+  const normalized = path.replace(/\\/g, "/");
+  try {
+    if (normalized.startsWith("//")) {
+      const [server, ...parts] = normalized.slice(2).split("/");
+      if (!server || !parts[0]) return "";
+      return new URL(`file://${server}/${parts.map(encodeURIComponent).join("/")}`).href;
+    }
+    if (/^[A-Za-z]:\//.test(normalized)) {
+      const [drive, ...parts] = normalized.split("/");
+      return new URL(`file:///${drive}/${parts.map(encodeURIComponent).join("/")}`).href;
+    }
+  } catch {}
+  return "";
+}
+
 function resolveLink(url, doc) {
   if (/^mailto:/i.test(url)) return { href: url, external: false };
   if (url.startsWith("#")) return { href: url, external: false };
   if (!doc || /^(javascript:|data:|vbscript:)/i.test(url)) return { href: "#", external: false };
+  const fileUrl = localFileUrl(url);
+  if (fileUrl) return { href: fileUrl, external: true };
+  if (/^file:\/\/[^/]+\//i.test(url)) return { href: url, external: true };
 
   const [pathWithQuery, anchor = ""] = url.split("#", 2);
   const indexedUrl = normalizedDocumentUrl(pathWithQuery, doc.webUrl);
@@ -190,6 +210,16 @@ function inlineMarkdown(value, doc) {
       const targetAttr = resolved.external ? ' target="_blank" rel="noopener noreferrer"' : "";
       const docAttr = resolved.docId ? ` data-doc-id="${escapeHtml(resolved.docId)}"` : "";
       return token(`<a href="${escapeHtml(resolved.href)}"${titleAttr}${targetAttr}${docAttr}>${escapeHtml(label)}</a>`);
+    })
+    .replace(/(https?:\/\/|file:\/\/|www\.)[^\s<]+|\\\\[^\s<]+/gi, (match) => {
+      let label = match;
+      while (/[.,!?;:]$/.test(label)) label = label.slice(0, -1);
+      const url = /^www\./i.test(label) ? `https://${label}` : label;
+      const resolved = resolveLink(url, doc);
+      const targetAttr = resolved.external ? ' target="_blank" rel="noopener noreferrer"' : "";
+      const docAttr = resolved.docId ? ` data-doc-id="${escapeHtml(resolved.docId)}"` : "";
+      const anchor = `<a href="${escapeHtml(resolved.href)}"${targetAttr}${docAttr}>${escapeHtml(label)}</a>`;
+      return `${token(anchor)}${match.slice(label.length)}`;
     });
   text = escapeHtml(text)
     .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
@@ -322,7 +352,9 @@ async function api(path, options) {
 
 function groupHtml(group, root = false) {
   const childGroups = group.groups.map((child) => groupHtml(child)).join("");
-  const projects = group.projects.map((project) => `
+  const projects = [...group.projects]
+    .sort((a, b) => projectNameCollator.compare(a.name, b.name) || projectNameCollator.compare(a.path, b.path))
+    .map((project) => `
     <details class="tree-project-wrap" open>
       <summary class="tree-project"><span class="tree-icon">◇</span><span>${escapeHtml(project.name)}</span></summary>
       <div class="tree-children">
