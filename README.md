@@ -48,6 +48,8 @@ FastAPI が生成する API ドキュメントは <http://localhost:8000/docs> �
 ```powershell
 python -m pip install -r requirements-dev.txt
 python -m unittest discover -s tests
+# Node.js 18 以降が利用できる場合
+node --test tests/test_markdown_links.js
 ```
 
 ## Azure Red Hat OpenShift

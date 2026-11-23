@@ -11,6 +11,7 @@ const views = ["#welcome", "#searchView", "#docView"];
 const SIDEBAR_DEFAULT_WIDTH = 292;
 const SIDEBAR_MIN_WIDTH = 220;
 const SIDEBAR_MAX_WIDTH = 520;
+const RENDERER_CACHE_VERSION = "2";
 const projectNameCollator = new Intl.Collator("ja", { numeric: true });
 
 function setSidebarWidth(width, persist = true) {
@@ -110,13 +111,21 @@ function localFileUrl(path) {
 }
 
 function resolveLink(url, doc) {
+  url = DocsMarkdownLinks.decodeHtmlReferences(url);
+  if (url === "") return { href: "", external: false };
+  if (DocsMarkdownLinks.hasBlockedScheme(url)) return { href: "#", external: false, blocked: true };
   if (/^mailto:/i.test(url)) return { href: url, external: false };
   if (url.startsWith("#")) return { href: url, external: false };
-  if (!doc || /^(javascript:|data:|vbscript:)/i.test(url)) return { href: "#", external: false };
+  if (!doc) return { href: "#", external: false };
   const fileUrl = localFileUrl(url);
   if (fileUrl) return { href: fileUrl, external: true };
-  if (/^file:\/\/[^/]+\//i.test(url)) return { href: url, external: true };
-
+  if (/^file:\/\//i.test(url)) {
+    try {
+      return { href: new URL(url).href, external: true };
+    } catch {
+      return { href: "#", external: false, blocked: true };
+    }
+  }
   const [pathWithQuery, anchor = ""] = url.split("#", 2);
   const indexedUrl = normalizedDocumentUrl(pathWithQuery, doc.webUrl);
   const linkedDocument = state.documentUrlIndex.get(indexedUrl);
@@ -154,8 +163,9 @@ function resolveLink(url, doc) {
 }
 
 function resolveImageUrl(url, doc) {
+  url = DocsMarkdownLinks.decodeHtmlReferences(url);
   if (/^https?:/i.test(url)) return url;
-  if (!doc || /^(javascript:|data:|vbscript:)/i.test(url) || !doc.webUrl) return "";
+  if (!doc || DocsMarkdownLinks.hasBlockedScheme(url) || !doc.webUrl) return "";
 
   const marker = "/-/blob/";
   const markerAt = doc.webUrl.indexOf(marker);
@@ -192,42 +202,39 @@ function gitLabNewIssueUrl(documentUrl) {
 
 function inlineMarkdown(value, doc) {
   const tokens = [];
+  let tokenMarker = "\u0000DOCSNAV_INLINE";
+  while (value.includes(tokenMarker)) tokenMarker += "_";
   const token = (html) => {
     tokens.push(html);
-    return `@@INLINE${tokens.length - 1}@@`;
+    return `${tokenMarker}${tokens.length - 1}\u0000`;
   };
-  let text = value
-    .replace(/`([^`\n]+)`/g, (_, code) => token(`<code>${escapeHtml(code)}</code>`))
-    .replace(/!\[([^\]]*)\]\((\S+?)(?:\s+["']([^"']*)["'])?\)/g, (_, alt, url, title) => {
-      const source = resolveImageUrl(url, doc);
-      if (!source) return token(`<span class="image-error">画像を表示できません: ${escapeHtml(alt || url)}</span>`);
-      const titleAttr = title ? ` title="${escapeHtml(title)}"` : "";
-      return token(`<img src="${escapeHtml(source)}" alt="${escapeHtml(alt)}"${titleAttr} loading="lazy" decoding="async">`);
-    })
-    .replace(/\[([^\]]+)\]\((\S+?)(?:\s+["']([^"']*)["'])?\)/g, (_, label, url, title) => {
-      const resolved = resolveLink(url, doc);
-      const titleAttr = title ? ` title="${escapeHtml(title)}"` : "";
-      const targetAttr = resolved.external ? ' target="_blank" rel="noopener noreferrer"' : "";
-      const docAttr = resolved.docId ? ` data-doc-id="${escapeHtml(resolved.docId)}"` : "";
-      return token(`<a href="${escapeHtml(resolved.href)}"${titleAttr}${targetAttr}${docAttr}>${escapeHtml(label)}</a>`);
-    })
-    .replace(/(https?:\/\/|file:\/\/|www\.)[^\s<]+|\\\\[^\s<]+/gi, (match) => {
-      let label = match;
-      while (/[.,!?;:]$/.test(label)) label = label.slice(0, -1);
-      const url = /^www\./i.test(label) ? `https://${label}` : label;
-      const resolved = resolveLink(url, doc);
-      const targetAttr = resolved.external ? ' target="_blank" rel="noopener noreferrer"' : "";
-      const docAttr = resolved.docId ? ` data-doc-id="${escapeHtml(resolved.docId)}"` : "";
-      const anchor = `<a href="${escapeHtml(resolved.href)}"${targetAttr}${docAttr}>${escapeHtml(label)}</a>`;
-      return `${token(anchor)}${match.slice(label.length)}`;
-    });
+  const anchor = (label, url, title = "") => {
+    const resolved = resolveLink(url, doc);
+    if (resolved.blocked) return escapeHtml(label);
+    const titleAttr = title ? ` title="${escapeHtml(title)}"` : "";
+    const targetAttr = resolved.external ? ' target="_blank" rel="noopener noreferrer"' : "";
+    const docAttr = resolved.docId ? ` data-doc-id="${escapeHtml(resolved.docId)}"` : "";
+    return `<a href="${escapeHtml(resolved.href)}"${titleAttr}${targetAttr}${docAttr}>${escapeHtml(label)}</a>`;
+  };
+  let text = DocsMarkdownLinks.parseInlineLinks(value).map((node) => {
+    if (node.type === "text") return node.value;
+    if (node.type === "code") return token(`<code>${escapeHtml(node.value)}</code>`);
+    if (node.type === "image") {
+      const source = resolveImageUrl(node.destination, doc);
+      if (!source) return token(`<span class="image-error">画像を表示できません: ${escapeHtml(node.label || node.destination)}</span>`);
+      const titleAttr = node.title ? ` title="${escapeHtml(node.title)}"` : "";
+      return token(`<img src="${escapeHtml(source)}" alt="${escapeHtml(node.label)}"${titleAttr} loading="lazy" decoding="async">`);
+    }
+    return token(anchor(node.label, node.destination, node.title));
+  }).join("");
   text = escapeHtml(text)
     .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
     .replace(/__([^_]+)__/g, "<strong>$1</strong>")
     .replace(/~~([^~]+)~~/g, "<del>$1</del>")
     .replace(/(^|[\s(])\*([^*\n]+)\*/g, "$1<em>$2</em>")
     .replace(/(^|[\s(])_([^_\n]+)_/g, "$1<em>$2</em>");
-  return text.replace(/@@INLINE(\d+)@@/g, (_, index) => tokens[Number(index)]);
+  const markerPattern = tokenMarker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return text.replace(new RegExp(`${markerPattern}(\\d+)\\u0000`, "g"), (_, index) => tokens[Number(index)]);
 }
 
 function splitTableRow(line) {
@@ -324,7 +331,7 @@ function markdown(source, doc) {
 }
 
 function renderedDocumentHtml(doc) {
-  const key = doc.renderHash ? `docsNavigator.renderedHtml.${doc.renderHash}` : "";
+  const key = doc.renderHash ? `docsNavigator.renderedHtml.v${RENDERER_CACHE_VERSION}.${doc.renderHash}` : "";
   if (key) {
     try {
       const cached = localStorage.getItem(key);

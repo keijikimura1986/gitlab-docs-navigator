@@ -47,7 +47,8 @@ class ApiTests(unittest.TestCase):
         self.assertTrue(response.json()["ok"])
         self.assertEqual(response.headers["cache-control"], "no-store")
 
-    def test_missing_document(self):
+    @patch("app.STORE.document", return_value=None)
+    def test_missing_document(self, _document):
         response = self.client.get("/api/doc", params={"id": "missing"})
         self.assertEqual(response.status_code, 404)
         self.assertEqual(response.json(), {"error": "文書が見つかりません"})
